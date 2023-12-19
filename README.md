@@ -1,1 +1,1 @@
-"# SpeedEditorRemapper" 
+# SpeedEditorRemapper
