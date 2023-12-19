@@ -4,6 +4,7 @@
 #include "Adafruit_TinyUSB.h"
 #include <bluefruit.h>
 #include "HardwareSerial.h"
+#include "BLEClientHIDReportCharacteristic.h"
 
 class DavinciResolve_USBD_Vendor : public Adafruit_USBD_Interface
 {
@@ -199,17 +200,18 @@ BLEClientDis  clientDis;  // device information client
 BLEClientService clientHid(UUID16_SVC_HUMAN_INTERFACE_DEVICE);
 BLEClientCharacteristic hidInfo(UUID16_CHR_HID_INFORMATION);
 BLEClientCharacteristic reportMap(UUID16_CHR_REPORT_MAP);
-BLEClientCharacteristic chr1(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr2(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr3(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr4(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr5(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr6(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr7(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr8(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr9(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr10(UUID16_CHR_REPORT);
-BLEClientCharacteristic chr11(UUID16_CHR_REPORT);
+BLEClientHIDReportCharacteristic chr1;
+BLEClientHIDReportCharacteristic chr2;
+BLEClientHIDReportCharacteristic chr3;
+BLEClientHIDReportCharacteristic chr4;
+BLEClientHIDReportCharacteristic chr5;
+BLEClientHIDReportCharacteristic chr6;
+BLEClientHIDReportCharacteristic chr7;
+BLEClientHIDReportCharacteristic chr8;
+BLEClientHIDReportCharacteristic chr9;
+BLEClientHIDReportCharacteristic chr10;
+BLEClientHIDReportCharacteristic chr11;
+
 BLEClientCharacteristic *chrs[] = {
   &chr1,
   &chr2,
@@ -287,7 +289,7 @@ void setup() {
 
   // Set connection secured callback, invoked when connection is encrypted
   Bluefruit.Security.setSecuredCallback(connection_secured_callback);
-  Bluefruit.Security.setIOCaps(true,true,false);
+  Bluefruit.Security.setIOCaps(false,false,false);
   // Bluefruit.Security.setMITM(true);
   Bluefruit.Security.setPairPasskeyCallback(pair_passkey_callback);
   // Set complete callback to print the pairing result
@@ -345,9 +347,6 @@ void setup() {
   ready = false;
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
 
-
-
-
 }
 
 void loop()
@@ -356,24 +355,35 @@ void loop()
 
   if(ready && !connected)
   {
-    
-    delay(3000);
-    for(uint16_t t=0; t<sizeof(chrs)/sizeof(chrs[0]); ++t) {
-      if(chrs[t]->discovered() && chrs[t]->uuid==UUID16_CHR_REPORT)
-      {
-        chrs[t]->readReportRef();
-        Serial.printf("report ref[%d]: %d - %d\n", t, chrs[t]->report_ref.id, chrs[t]->report_ref.type);
-      }
-    }
+    // onConnect
+
+    // for(uint16_t t=0; t<sizeof(chrs)/sizeof(chrs[0]); ++t) {
+    //   if(chrs[t]->discovered() && (chrs[t]->uuid==UUID16_CHR_REPORT) )
+    //   {
+    //     delay(10); // Needed to give some time to the stack to finilized its internal processing.
+    //     BLEClientHIDReportCharacteristic* pchr= (BLEClientHIDReportCharacteristic*)chrs[t];
+    //     Serial.printf("report ref[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+    //   }
+    // }
+    // if(clientBas.discovered())
+    // {
+    //   delay(10);
+    //   Serial.printf("Battery level: %d%%\n",clientBas.read());
+    // }
+    connected = ready;
   }
-  connected = ready;
+  else if(connected && !ready)
+  {
+    // onDisconnect
+
+
+    connected = ready;
+  }
+
   delay(500);
   digitalWrite(LED_BUILTIN, 0);
   delay(500);
   digitalWrite(LED_BUILTIN, 1);
-  Serial1.println("Hello!!");
-  Serial1.flush();
-
 }
 
 
@@ -384,10 +394,10 @@ void discover(uint16_t conn_handle)
   // Serial.printf("Requested MTU=%d\n", Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL));
   // conn->requestMtuExchange(Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL));
 
-  Serial.print("Dicovering Device Information ... ");
+  Serial.print("Discovering Device Information ... ");
   if ( clientDis.discover(conn_handle) )
   {
-    Serial.println("Found it");
+    Serial.println("Found");
     char buffer[64+1];
     
     memset(buffer, 0, sizeof(buffer));
@@ -423,28 +433,37 @@ void discover(uint16_t conn_handle)
     Serial.println("Found NONE");
   }
 
-  Serial.print("Dicovering HID ... ");
+  Serial.print("Discovering HID ... ");
   if ( clientHid.discover(conn_handle) )
   {
-    Serial.println("Found it");
+    Serial.println("Found");
 
     uint16_t count;
 
     count = Bluefruit.Discovery.discoverCharacteristic(conn_handle, chrs, sizeof(chrs)/sizeof(chrs[0]));
     Serial.printf("Found %d report characteristics\n", count);
-
+    for(int t=0; t<11; ++t)
+    {
+      if(chrs[t]->discovered())
+      {
+        delay(10); // Needed to give some time to the stack to finilized its internal processing.
+        BLEClientHIDReportCharacteristic* pchr= (BLEClientHIDReportCharacteristic*)chrs[t];
+        Serial.printf("report ref[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+      }
+    }
+    delay(10); // Needed to give some time to the stack to finilized its internal processing.
   }else
   {
     Serial.println("Found NONE");
   }
   
 
-  Serial.print("Dicovering Battery ... ");
+  Serial.print("Discovering Battery ... ");
   if ( clientBas.discover(conn_handle) )
   {
-    Serial.println("Found it");
-    Serial.printf("Battery level: %d",clientBas.read());
-    Serial.println("%");
+    Serial.println("Found");
+    delay(10);
+    Serial.printf("Battery level: %d%%\n",clientBas.read());
 
   }else
   {
@@ -479,6 +498,7 @@ void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8
   (void) report_id;
   (void) report_type;
   Serial.printf("setReport: ID=%d, Type=%d, Len=%d\n", report_id, report_type, bufsize);
+
 
   // echo back anything we received from host
   // usb_hid.sendReport(0, buffer, bufsize);
