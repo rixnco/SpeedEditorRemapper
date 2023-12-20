@@ -6,6 +6,15 @@
 #include "HardwareSerial.h"
 #include "BLEClientHIDReportCharacteristic.h"
 
+#define PROPS_BCAST         (0b00000001)
+#define PROPS_READ          (0b00000010)
+#define PROPS_WRITE_NO_RSP  (0b00000100)
+#define PROPS_WRITE         (0b00001000)
+#define PROPS_NOTFY         (0b00010000)
+#define PROPS_INDICATE      (0b00100000)
+#define PROPS_AUTHS_WR      (0b01000000)
+
+
 class DavinciResolve_USBD_Vendor : public Adafruit_USBD_Interface
 {
 public:
@@ -228,6 +237,20 @@ BLEClientCharacteristic *chrs[] = {
   &hidInfo
 };
 
+BLEClientHIDReportCharacteristic* reports[] ={
+  &chr1,
+  &chr2,
+  &chr3,
+  &chr4,
+  &chr5,
+  &chr6,
+  &chr7,
+  &chr8,
+  &chr9,
+  &chr10,
+  &chr11
+};
+
 void disconnect_callback(uint16_t conn_handle, uint8_t reason);
 void connect_callback(uint16_t conn_handle);
 void scan_callback(ble_gap_evt_adv_report_t* report);
@@ -235,42 +258,46 @@ void connection_secured_callback(uint16_t conn_handle);
 bool pair_passkey_callback(uint16_t conn_hdl, uint8_t const passkey[6], bool match_request);
 void pair_passkey_req_callback(uint16_t conn_hdl, uint8_t passkey[6]);
 void pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status);
-
 void discover(uint16_t conn_handle);
+
+
+void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len);
 
 bool ready = false;
 
 void setup() {
-
-  bond_init();
-  // Clear TinyUSB USB interface
-  //Serial.end();
-
-  // TinyUSBDevice.setSerialDescriptor("12ECE81A21B347CE8B706886DC00A9E9");
-  // TinyUSBDevice.setSerialDescriptor("12ECE81A21B");
-  // TinyUSBDevice.begin();
-
-  Serial1.begin(115200);
-
-
   // Configure GPIOs
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, 1);
   pinMode(PIN_BUTTON1, INPUT_PULLUP);
 
-  usb_vendor.begin();
+  bond_init();
+
+
+  // TinyUSBDevice.setSerialDescriptor("12ECE81A21B347CE8B706886DC00A9E9");
+//  TinyUSBDevice.setSerialDescriptor("12ECE81A21B");
+  // TinyUSBDevice.begin();
+
+  // // Declare SpeedEditor Private Interfaces
+  // usb_vendor.begin();
+
+  // // Declare SpeedEditor HID interface
+  // usb_hid.enableOutEndpoint(true);
+  // usb_hid.setPollInterval(2);
+  // usb_hid.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
+  // usb_hid.setStringDescriptor("SpeedEditorRemapper");
+  // usb_hid.setReportCallback(get_report_callback, set_report_callback);
+  // usb_hid.begin();
 
   // Declare CDC Serial Interface
   Serial.begin(115200);
 
-  // Declare SpeedEditor interface
-  usb_hid.enableOutEndpoint(true);
-  usb_hid.setPollInterval(2);
-  usb_hid.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
-  // usb_hid.setStringDescriptor("SpeedEditor");
-  usb_hid.setReportCallback(get_report_callback, set_report_callback);
-  usb_hid.begin();
+  
+  // Serial1.begin(115200);
+  // Serial1.println("\nSpeedEditorRemapper");
 
+
+  ready = false;
 
   // wait until device mounted
   while( !TinyUSBDevice.mounted() ) delay(1);
@@ -278,6 +305,12 @@ void setup() {
   delay(1000);
   Serial.println("\nSpeedEditorRemapper");
 
+
+  // // Increase Blink rate to different from PrPh advertising mode
+  // DO NOT USE - FREEZE BOARD to be investigated !!
+  // Bluefruit.setConnLedInterval(250);
+
+  Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
 
   // clear bonds if BUTTON A is pressed
   if (0 == digitalRead(PIN_BUTTON1))
@@ -323,9 +356,6 @@ void setup() {
   reportMap.begin(&clientHid);
   hidInfo.begin(&clientHid);
 
-// Increase Blink rate to different from PrPh advertising mode
-  Bluefruit.setConnLedInterval(250);
-  Bluefruit.configCentralBandwidth(BANDWIDTH_HIGH);
 
   // Callbacks for Central
   Bluefruit.Central.setConnectCallback(connect_callback);
@@ -344,7 +374,6 @@ void setup() {
   Bluefruit.Scanner.filterUuid(BLEUuid(0x1812));   // only report HID service  
   Bluefruit.Scanner.useActiveScan(false);
   
-  ready = false;
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
 
 }
@@ -355,8 +384,25 @@ void loop()
 
   if(ready && !connected)
   {
+    delay(100);
+    BLEConnection* conn = Bluefruit.Connection( clientHid.connHandle() );
+    uint16_t mtu = Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL);
+    Serial.printf("Requesting MTU=%d\n", mtu);
+    if(!conn->requestMtuExchange(mtu))
+    {
+      Serial.println("MTU Request failed !!");
+    }
+    delay(100);
     // onConnect
-
+    Serial.println("enabling ble notifications");
+    for(int t=0; t<11; ++t)
+    {
+      if(reports[t]->properties() & PROPS_NOTFY) {
+        Serial.printf("notif: %d-%d\n", reports[t]->reportId(),reports[t]->reportType());
+        reports[t]->enableNotify();
+        delay(10);
+      }
+    }
     // for(uint16_t t=0; t<sizeof(chrs)/sizeof(chrs[0]); ++t) {
     //   if(chrs[t]->discovered() && (chrs[t]->uuid==UUID16_CHR_REPORT) )
     //   {
@@ -390,9 +436,6 @@ void loop()
 void discover(uint16_t conn_handle)
 {
   Serial.println("Discovering");
-
-  // Serial.printf("Requested MTU=%d\n", Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL));
-  // conn->requestMtuExchange(Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL));
 
   Serial.print("Discovering Device Information ... ");
   if ( clientDis.discover(conn_handle) )
@@ -441,7 +484,7 @@ void discover(uint16_t conn_handle)
     uint16_t count;
 
     count = Bluefruit.Discovery.discoverCharacteristic(conn_handle, chrs, sizeof(chrs)/sizeof(chrs[0]));
-    Serial.printf("Found %d report characteristics\n", count);
+    Serial.printf("Found %d characteristics\n", count);
     for(int t=0; t<11; ++t)
     {
       if(chrs[t]->discovered())
@@ -449,6 +492,7 @@ void discover(uint16_t conn_handle)
         delay(10); // Needed to give some time to the stack to finilized its internal processing.
         BLEClientHIDReportCharacteristic* pchr= (BLEClientHIDReportCharacteristic*)chrs[t];
         Serial.printf("report ref[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+        if(chrs[t]->canNotify()) pchr->setNotifyCallback(ble_reportCallback);
       }
     }
     delay(10); // Needed to give some time to the stack to finilized its internal processing.
@@ -462,7 +506,7 @@ void discover(uint16_t conn_handle)
   if ( clientBas.discover(conn_handle) )
   {
     Serial.println("Found");
-    delay(10);
+    delay(100);
     Serial.printf("Battery level: %d%%\n",clientBas.read());
 
   }else
@@ -485,9 +529,24 @@ uint16_t get_report_callback (uint8_t report_id, hid_report_type_t report_type, 
   (void) buffer;
   (void) reqlen;
 
-  Serial.printf("getReport: ID=%d, Type=%d, Len=%d\n", report_id, report_type, reqlen);
-
-  return 0;
+  Serial.printf("getReport: ID=%d, Type=%d, Len=%d: ", report_id, report_type, reqlen);
+  uint16_t len=0;
+  for(int t=0; t<11; ++t)
+  {
+    if(reports[t]->reportId() == report_id && reports[t]->reportType() == report_type )
+    {
+      delay(10);
+       len = reports[t]->read(buffer, reqlen);
+       break;
+    }
+  }
+  for(int t=0; t<len; ++t)
+  {
+    Serial.printf("%02X ", buffer[t]);
+  }
+  Serial.println();
+ 
+  return len;
 }
 
 // Invoked when received SET_REPORT control request or
@@ -497,8 +556,21 @@ void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8
   // This example doesn't use multiple report and report ID
   (void) report_id;
   (void) report_type;
-  Serial.printf("setReport: ID=%d, Type=%d, Len=%d\n", report_id, report_type, bufsize);
-
+  Serial.printf("setReport: ID=%d, Type=%d, Len=%d: ", report_id, report_type, bufsize);
+  for(int t=0; t<bufsize; ++t)
+  {
+    Serial.printf("%02X ", buffer[t]);
+  }
+  Serial.println();
+  for(int t=0; t<11; ++t)
+  {
+    if(reports[t]->reportId() == report_id && reports[t]->reportType() == report_type )
+    {
+      delay(10);
+      reports[t]->write(buffer, bufsize);
+      break;
+    }
+  }
 
   // echo back anything we received from host
   // usb_hid.sendReport(0, buffer, bufsize);
@@ -565,8 +637,11 @@ void connect_callback(uint16_t conn_handle)
 
   Serial.println("Connected");
 
+  // Serial.println("Request MTU exchange: 128");
+  // conn->requestMtuExchange(128);
+  // delay(100);
+  // Serial.printf("MTU=%d\n", conn->getMtu());
 
- 
   // HID device mostly require pairing/bonding
   if(!conn->bonded()) {
     Serial.println("Request pairing...");
@@ -654,3 +729,10 @@ void connection_secured_callback(uint16_t conn_handle)
   }
 }
 
+void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
+{
+  BLEClientHIDReportCharacteristic* report= (BLEClientHIDReportCharacteristic*)chr;
+  Serial.printf("notification: %d - %d: ", report->reportId(), report->reportType());
+  for(int t=0; t<len; ++t) Serial.printf("%02X ", data[t]);
+  Serial.println();
+}

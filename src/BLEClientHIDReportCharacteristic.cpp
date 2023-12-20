@@ -49,13 +49,6 @@ BLEClientHIDReportCharacteristic::~BLEClientHIDReportCharacteristic()
 {
 }
 
-bool BLEClientHIDReportCharacteristic::_acceptHandle(uint16_t handle)
-{
-  if(handle == BLE_GATT_HANDLE_INVALID) return false;
-  if(handle == _report_ref_handle) return true;
-  return BLEClientCharacteristic::_acceptHandle(handle);
-}
-
 void BLEClientHIDReportCharacteristic::_readReportRef()
 {
   if(_report_ref_handle != BLE_GATT_HANDLE_INVALID && _report_type==0)
@@ -66,6 +59,13 @@ void BLEClientHIDReportCharacteristic::_readReportRef()
     _report_type= buffer[1];
     //delay(10);
   }
+}
+
+bool BLEClientHIDReportCharacteristic::_acceptHandle(uint16_t handle)
+{
+  if(handle == BLE_GATT_HANDLE_INVALID) return false;
+  if(handle == _report_ref_handle) return true;
+  return BLEClientCharacteristic::_acceptHandle(handle);
 }
 
 void BLEClientHIDReportCharacteristic::_processDescriptor(ble_gattc_desc_t* pDesc)
