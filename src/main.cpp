@@ -6,6 +6,9 @@
 #include "HardwareSerial.h"
 #include "BLEClientHIDReportCharacteristic.h"
 
+#include"hid_key.h"
+
+
 #define PROPS_BCAST         (0b00000001)
 #define PROPS_READ          (0b00000010)
 #define PROPS_WRITE_NO_RSP  (0b00000100)
@@ -13,6 +16,92 @@
 #define PROPS_NOTFY         (0b00010000)
 #define PROPS_INDICATE      (0b00100000)
 #define PROPS_AUTHS_WR      (0b01000000)
+
+#define KEY_SE_NONE			 0x00 //NO KEY
+
+#define KEY_SE_SMART_INSRT		 0x01 //SMART INSRT [CLIP]
+#define KEY_SE_APPND			 0x02 //APPND [CLIP]
+#define KEY_SE_RIPL_OWR		 0x03 //RIPL O/WR
+#define KEY_SE_CLOSE_UP		 0x04 //CLOSE UP [YPOS]
+#define KEY_SE_PLACE_ON_TOP	 0x05 //PLACE ON TOP
+#define KEY_SE_SRC_OWR			 0x06 //SRC O/WR
+
+#define KEY_SE_IN				 0x07 //IN [CLR]
+#define KEY_SE_OUT				 0x08 //OUT [CLR]
+#define KEY_SE_TRIM_IN			 0x09 //TRIM IN
+#define KEY_SE_TRIM_OUT		 0x0a //TRIM OUT
+#define KEY_SE_ROLL			 0x0b //ROLL [SLIDE]
+#define KEY_SE_SLIP_SRC		 0x0c //SLIP SRC
+#define KEY_SE_SLIP_DEST		 0x0d //SLIP DEST
+#define KEY_SE_TRANS_DUR		 0x0e //TRANS DUR [SET]
+#define KEY_SE_CUT				 0x0f //CUT
+#define KEY_SE_DIS				 0x10 //DIS
+#define KEY_SE_SMTH_CUT		 0x11 //SMTH CUT
+
+#define KEY_SE_SOURCE			 0x1a //SOURCE
+#define KEY_SE_TIMELINE		 0x1b //TIMELINE
+
+#define KEY_SE_SHTL			 0x1c //SHTL
+#define KEY_SE_JOG				 0x1d //JOG
+#define KEY_SE_SCRL			 0x1e //SCRL
+
+#define KEY_SE_ESC				 0x31 //ESC [UNDO]
+#define KEY_SE_SYNC_BIN		 0x1f //SYNC BIN
+#define KEY_SE_AUDIO_LEVEL		 0x2c //AUDIO LEVEL [MARK]
+#define KEY_SE_FULL_VIEW		 0x2d //FULL VIEW [RVW]
+#define KEY_SE_TRANS			 0x22 //TRANS [TITLE]
+#define KEY_SE_SPLIT			 0x2f //SPLIT [MOVE]
+#define KEY_SE_SNAP			 0x2e //SNAP [=]
+#define KEY_SE_RIPL_DEL		 0x2b //RIPL DEL
+
+#define KEY_SE_CAM1			 0x33 //CAM1
+#define KEY_SE_CAM2			 0x34 //CAM2
+#define KEY_SE_CAM3			 0x35 //CAM3
+#define KEY_SE_CAM4			 0x36 //CAM4
+#define KEY_SE_CAM5			 0x37 //CAM5
+#define KEY_SE_CAM6			 0x38 //CAM6
+#define KEY_SE_CAM7			 0x39 //CAM7
+#define KEY_SE_CAM8			 0x3a //CAM8
+#define KEY_SE_CAM9			 0x3b //CAM9
+#define KEY_SE_LIVE_OWR		 0x30 //LIVE O/WR [RND]
+#define KEY_SE_VIDEO_ONLY		 0x25 //VIDEO ONLY
+#define KEY_SE_AUDIO_ONLY		 0x26 //AUDIO ONLY
+#define KEY_SE_STOP_PLAY		 0x3c //STOP/PLAY
+
+
+typedef struct {
+  uint16_t se_key;
+  uint8_t kbd_mod;
+  uint8_t kbd_key;
+} keymap_t;
+
+
+// keymap_t keymap[] = {
+//   { .se_key=KEY_SE_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP1 },
+//   { .se_key=KEY_SE_CAM2, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP2 },
+//   { .se_key=KEY_SE_CAM3, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP3 },
+//   { .se_key=KEY_SE_CAM4, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP4 },
+//   { .se_key=KEY_SE_CAM5, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP5 },
+//   { .se_key=KEY_SE_CAM6, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP6 },
+//   { .se_key=KEY_SE_CAM7, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP7 },
+//   { .se_key=KEY_SE_CAM8, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP8 },
+//   { .se_key=KEY_SE_CAM9, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP9 }
+// };
+keymap_t keymap[] = {
+  { .se_key=KEY_SE_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_1 },
+  { .se_key=KEY_SE_CAM2, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_2 },
+  { .se_key=KEY_SE_CAM3, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_3 },
+  { .se_key=KEY_SE_CAM4, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_4 },
+  { .se_key=KEY_SE_CAM5, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_5 },
+  { .se_key=KEY_SE_CAM6, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_6 },
+  { .se_key=KEY_SE_CAM7, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_7 },
+  { .se_key=KEY_SE_CAM8, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_8 },
+  { .se_key=KEY_SE_CAM9, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_9 }
+};
+
+
+#define KEYMAP_SIZE (sizeof(keymap)/sizeof(keymap_t))
+
 
 
 class DavinciResolve_USBD_Vendor : public Adafruit_USBD_Interface
@@ -193,12 +282,26 @@ uint8_t const desc_hid_report[] =
 // 308 bytes
 };
 
+// USB HID object. For ESP32 these values cannot be changed after this declaration
+// desc report, desc len, protocol, interval, use out endpoint
+Adafruit_USBD_HID usb_se(desc_hid_report, sizeof(desc_hid_report), HID_ITF_PROTOCOL_NONE, 2, true);
+DavinciResolve_USBD_Vendor usb_vendor;
+
+
+// HID report descriptor using TinyUSB's template
+// Single Report (no ID) descriptor
+uint8_t const desc_kbd_report[] =
+{
+  TUD_HID_REPORT_DESC_KEYBOARD()
+};
 
 // USB HID object. For ESP32 these values cannot be changed after this declaration
 // desc report, desc len, protocol, interval, use out endpoint
-Adafruit_USBD_HID usb_hid(desc_hid_report, sizeof(desc_hid_report), HID_ITF_PROTOCOL_NONE, 2, true);
+Adafruit_USBD_HID usb_kbd(desc_kbd_report, sizeof(desc_kbd_report), HID_ITF_PROTOCOL_KEYBOARD, 2, false);
 
-DavinciResolve_USBD_Vendor usb_vendor;
+
+
+
 
 uint16_t get_report_callback (uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen);
 void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize);
@@ -220,6 +323,11 @@ BLEClientHIDReportCharacteristic chr8;
 BLEClientHIDReportCharacteristic chr9;
 BLEClientHIDReportCharacteristic chr10;
 BLEClientHIDReportCharacteristic chr11;
+
+BLEClientHIDReportCharacteristic* jog_input_report;
+BLEClientHIDReportCharacteristic* key_input_report;
+
+
 
 BLEClientCharacteristic *chrs[] = {
   &chr1,
@@ -281,6 +389,9 @@ typedef enum {
 } state_t;
 
 
+void task_running(void);
+
+
 state_t state = UNKNOWN;
 
 void setup() {
@@ -291,17 +402,22 @@ void setup() {
 
   bond_init();
 
-                                        
+  // TinyUSBDevice.setVersion(0x0102);  
+  TinyUSBDevice.setDeviceVersion(0x0102);
+  //TinyUSBDevice.setLanguageDescriptor();
   // Declare SpeedEditor Private Interfaces
   usb_vendor.begin();
 
   // Declare SpeedEditor HID interface
-  usb_hid.enableOutEndpoint(true);
-  usb_hid.setPollInterval(2);
-  usb_hid.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
-  usb_hid.setStringDescriptor("SpeedEditorRemapper");
-  usb_hid.setReportCallback(get_report_callback, set_report_callback);
-  usb_hid.begin();
+  usb_se.enableOutEndpoint(true);
+  usb_se.setPollInterval(2);
+  usb_se.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
+  usb_se.setStringDescriptor("SpeedEditorRemapper");
+  usb_se.setReportCallback(get_report_callback, set_report_callback);
+  usb_se.begin();
+
+  usb_kbd.setStringDescriptor("Remapped Keyboard");
+  usb_kbd.begin();
 
 
   // Declare CDC Serial Interface
@@ -310,18 +426,28 @@ void setup() {
   Serial1.println("\nSpeedEditorRemapper");
 
 
-  // // Increase Blink rate to different from PrPh advertising mode
   // DO NOT USE - FREEZE BOARD to be investigated !!
   // Bluefruit.setConnLedInterval(250);
 
-  Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
-
   // clear bonds if BUTTON A is pressed
-  if (0 == digitalRead(PIN_BUTTON1))
+  uint32_t time= millis();
+  while(millis()-time<2000)
   {
-    Serial1.println("Clearing all bonds");
-    Bluefruit.Central.clearBonds();
+    if (0 == digitalRead(PIN_BUTTON1))
+    {
+      Serial1.println("Clearing all bonds");
+      Bluefruit.Central.clearBonds();
+      for(int t=0; t<4; ++t)
+      {
+        digitalWrite(LED_BUILTIN, 0);
+        delay(250);
+        digitalWrite(LED_BUILTIN, 1);
+        delay(250);
+      }
+      break;
+    }
   }
+  Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
 
 
   // Set connection secured callback, invoked when connection is encrypted
@@ -386,17 +512,6 @@ void setup() {
 
 }
 
-// void tud_umount_cb(void)
-// {
-//   Serial1.println("unmount");
-// }
-
-// void tud_mount_cb(void)
-// {
-//   Serial1.println("mount");
-// }
-
-
 void reset_mcu(uint32_t gpregret=0)
 {
   // disable SD
@@ -420,18 +535,13 @@ void reset_mcu(uint32_t gpregret=0)
 
 
 
-uint8_t buffer[64][4]= {0};
-
-
+static bool led_state = false;
 void loop()
 {
   static uint32_t last_heartbeat_time=0;
-  static uint32_t last_report_time=0;
-  static bool led_state = false;
-  static uint16_t report_idx=0;
 
   uint32_t now= millis();
-  if(now-last_heartbeat_time>500)
+  if(now-last_heartbeat_time>250)
   {
     last_heartbeat_time=now;
     led_state=!led_state;
@@ -493,33 +603,162 @@ void loop()
     // }
     Serial1.println("Identified");
     delay(100);
-    last_report_time = millis();
     state = RUNNING;
     break;
   case RUNNING:
   {
-    if(now-last_report_time<25) break;
-    last_report_time=now;
-    if(reports[report_idx]->reportType() == 1) 
-    {
-      uint8_t _buffer[64];
-      
-      uint16_t len = reports[report_idx]->read(_buffer, 64);
-      if(len && memcmp(_buffer, buffer[report_idx], len)!=0) 
-      {
-        digitalWrite(LED_BUILTIN, !led_state);
-        memcpy(buffer[report_idx], _buffer, len);
-        usb_hid.sendReport(reports[report_idx]->reportId(), buffer[report_idx], len);
-      }
-    }
-    report_idx= (report_idx+1)%4;
-    digitalWrite(LED_BUILTIN, led_state);
+    task_running();
     break;
   }
   default:
     break;
   }
   yield();
+}
+
+
+
+typedef struct __attribute__((__packed__)) {
+  uint8_t mode;
+  int32_t position;
+  uint8_t reserved;
+} jog_report_t;
+
+
+typedef struct __attribute__((__packed__)) {
+  uint8_t mod;
+  uint8_t reserved;
+  uint8_t key[6];
+} hid_kbd_report_t;
+
+jog_report_t jog_report = {0};
+
+uint16_t  key_se[2][6] = {0};
+keymap_t* key_kbd[2][6] = {0};
+
+uint16_t* pcur_key_se=key_se[0];
+uint16_t* pprv_key_se=key_se[1];
+
+keymap_t** pcur_key_kbd=key_kbd[0];  
+keymap_t** pprv_key_kbd=key_kbd[1];
+
+void task_running(void)
+{
+  static uint32_t last_report_time=0;
+  static uint16_t report_idx=0;
+  uint32_t now = millis();
+
+  // // Send any pending usb keyboard report.
+  // if(key_buffer_len>0 && usb_kbd.ready())
+  // {
+  //   usb_kbd.keyboardReport(0, key_buffer[key_buffer_tail].mod, key_buffer[key_buffer_tail].key);
+  //   --key_buffer_len;
+  //   key_buffer_tail = (key_buffer_tail+1)%MAX_KEY_BUFFER_LEN;
+  // }
+
+  if(now-last_report_time<40) return;
+  last_report_time=now;
+
+  uint8_t  report[64];
+  uint16_t report_len=0;
+  uint8_t  report_id=0;
+  switch(report_idx)
+  {
+    case 0:
+    case 1:
+      // Process jog report:
+      // report_id = 3
+      // payload   = uint8_t(mode) + int32_t(value) + int8_t(??)
+      // No remapping. Just forward to usb hid.
+      report_id = jog_input_report->reportId();
+      report_len = jog_input_report->read(report, 6 /*64*/);
+      if(report_len && usb_se.ready() && memcmp(report, &jog_report, report_len)!=0) 
+      {
+        led_state=!led_state;
+        digitalWrite(LED_BUILTIN, !led_state);
+        memcpy(&jog_report, report, report_len);
+        usb_se.sendReport(report_id, report, report_len);
+      }
+      break;
+    case 2:
+      // Process key report:
+      // report_id=4
+      // payload  =6*uint16_t (keycodes in little-endian format)
+      // Filter keys based on remapping configuration.
+      // 
+      report_id = key_input_report->reportId();
+      report_len = key_input_report->read(report, 6*sizeof(uint16_t) /*64*/);
+      if(report_len) 
+      {
+        // Swap SE key buffers and clear the new current buffer;
+        uint16_t *tmp_se;
+        tmp_se= pprv_key_se;
+        pprv_key_se= pcur_key_se;
+        pcur_key_se= tmp_se;
+        memclr(pcur_key_se,6*sizeof(uint16_t));
+
+        // Swap the KBD key buffers and clear the new current buffer;
+        keymap_t** tmp_kbd= pprv_key_kbd;
+        pprv_key_kbd= pcur_key_kbd;
+        pcur_key_kbd= tmp_kbd;
+        memclr(pcur_key_kbd,6*sizeof(keymap_t*));
+        
+
+        // Fill current buffers with new key.
+        uint16_t* pkey_se= pcur_key_se;
+        keymap_t** pkey_kbd= pcur_key_kbd;
+        uint16_t key;
+        uint16_t *pkey=(uint16_t*)report;
+        for(size_t t=0; t<6; ++t,++pkey)
+        {
+          key=*pkey;
+          if(!key) continue;
+          keymap_t* remapped=0;
+          for(size_t u=0; !remapped && u<KEYMAP_SIZE; ++u)
+          {
+            if(key == keymap[u].se_key) remapped= &keymap[u];
+          }
+          if(remapped) {
+            *pkey_kbd++=remapped;
+          } else {
+            *pkey_se++=key;
+          }
+        }
+        bool comm_led=led_state;
+        // Send SpeedEditor key report
+        if(usb_se.ready() && memcmp(pcur_key_se, pprv_key_se, 6*sizeof(uint16_t))!=0)
+        {
+          comm_led=!led_state;
+          digitalWrite(LED_BUILTIN, comm_led);
+          usb_se.sendReport(report_id, pcur_key_se, 6*sizeof(uint16_t));
+          Serial.printf("SE: ");
+          for(int t=0; t<6; ++t) Serial.printf("0x%04X ",pcur_key_se[t]);
+          Serial.printf("\n");
+        }
+        // Send kbd report
+        if(usb_kbd.ready() && memcmp(pcur_key_kbd, pprv_key_kbd, 6*sizeof(keymap_t*))!=0)
+        {
+          comm_led=!led_state;
+          digitalWrite(LED_BUILTIN, comm_led);
+          hid_kbd_report_t kbd_report= {0};
+          pkey_kbd= pcur_key_kbd;
+          int u=0;
+          for(int t=0; t<6; ++t, ++pkey_kbd)
+          {
+            if(!(*pkey_kbd)) continue;
+            kbd_report.mod |= (*pkey_kbd)->kbd_mod;
+            kbd_report.key[u++]= (*pkey_kbd)->kbd_key;
+          }
+          usb_kbd.sendReport(0, &kbd_report, sizeof(hid_kbd_report_t));
+          Serial1.printf("KBD: %02X - ",kbd_report.mod);
+          for(int t=0; t<6; ++t) Serial1.printf("0x%02X ",kbd_report.key[t]);
+          Serial1.printf("\n");
+        }
+        led_state = comm_led;
+      }
+      break;
+  }
+  report_idx= (report_idx+1)%3;
 }
 
 
@@ -582,7 +821,10 @@ void discover(uint16_t conn_handle)
         delay(10); // Needed to give some time to the stack to finilized its internal processing.
         BLEClientHIDReportCharacteristic* pchr= (BLEClientHIDReportCharacteristic*)chrs[t];
         Serial1.printf("report ref[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+        if(pchr->reportId()==3 && pchr->reportType()==1) jog_input_report= pchr;
+        if(pchr->reportId()==4 && pchr->reportType()==1) key_input_report= pchr;
         if(chrs[t]->canNotify()) pchr->setNotifyCallback(ble_reportCallback);
+        if(chrs[t]->canIndicate()) pchr->setIndicateCallback(ble_reportCallback);
       }
     }
     delay(10); // Needed to give some time to the stack to finilized its internal processing.
@@ -644,9 +886,9 @@ uint16_t get_report_callback (uint8_t report_id, hid_report_type_t report_type, 
   {
     if(reports[t]->reportId() == report_id && reports[t]->reportType() == report_type )
     {
-      // delay(5);
-       len = reports[t]->read(buffer, reqlen);
-       break;
+      delay(15);
+      len = reports[t]->read(buffer, reqlen);
+      break;
     }
   }
   Serial1.printf("getReport: ID=%d, Type=%d, Len=%d: ", report_id, report_type, reqlen);
@@ -685,7 +927,7 @@ void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8
   {
     if(reports[t]->reportId() == report_id && reports[t]->reportType() == report_type )
     {
-      // delay(5);
+      delay(15);
       reports[t]->write_resp(buffer, bufsize);
       break;
     }

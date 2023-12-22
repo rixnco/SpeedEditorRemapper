@@ -5,9 +5,10 @@ Output report  (2) : sent to the device
 Feature report (3) :
 
 
-report ID 2: leds
-report ID 3: jog mode
-report ID 4: jog leds
+report ID 2: leds         (in / out)
+report ID 3: jog mode     (int / out)
+report ID 4: key          (in)
+report ID 4: jog leds     (out)
 report ID 7: battery
 
 
