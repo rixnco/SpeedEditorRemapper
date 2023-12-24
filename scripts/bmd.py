@@ -226,10 +226,11 @@ class SpeedEditor:
 
 		# Reset the auth state machine
 		self.dev.send_feature_report(b'\x06\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-
+		print(b'\x06\x00\x00\x00\x00\x00\x00\x00\x00\x00'.hex(' ').upper())
+		
 		# Read the keyboard challenge (for keyboard to authenticate app)
 		data = self.dev.get_feature_report(6, 10)
-		print(data)
+		print(data.hex(' ').upper())
 		if data[0:2] != b'\x06\x00':
 			raise RuntimeError('Failed authentication get_kbd_challenge')
 		challenge = int.from_bytes(data[2:], 'little')

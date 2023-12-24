@@ -300,11 +300,14 @@ uint8_t const desc_kbd_report[] =
 Adafruit_USBD_HID usb_kbd(desc_kbd_report, sizeof(desc_kbd_report), HID_ITF_PROTOCOL_KEYBOARD, 2, false);
 
 
+uint16_t usb_get_report_callback (uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen);
+void usb_set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize);
 
 
 
-uint16_t get_report_callback (uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen);
-void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize);
+//--------------------------------------------------------
+// BLEClientDevise
+//--------------------------------------------------------
 
 
 BLEClientBas  clientBas;  // battery client
@@ -324,10 +327,17 @@ BLEClientHIDReportCharacteristic chr9;
 BLEClientHIDReportCharacteristic chr10;
 BLEClientHIDReportCharacteristic chr11;
 
+BLEClientHIDReportCharacteristic* identity_feature_report;
+BLEClientHIDReportCharacteristic* leds_output_report;
 BLEClientHIDReportCharacteristic* jog_input_report;
+BLEClientHIDReportCharacteristic* jog_mode_output_report;
+BLEClientHIDReportCharacteristic* jog_led_output_report;
 BLEClientHIDReportCharacteristic* key_input_report;
-
-
+BLEClientHIDReportCharacteristic* unknown_feature_report;
+BLEClientHIDReportCharacteristic* auth_feature_report;
+BLEClientHIDReportCharacteristic* batt_input_report;
+BLEClientHIDReportCharacteristic* batt_feature_report;
+BLEClientHIDReportCharacteristic* serial_feature_report;
 
 BLEClientCharacteristic *chrs[] = {
   &chr1,
@@ -345,7 +355,7 @@ BLEClientCharacteristic *chrs[] = {
   &hidInfo
 };
 
-BLEClientHIDReportCharacteristic* reports[] ={
+BLEClientHIDReportCharacteristic* report_chrs[] ={
   &chr1,
   &chr2,
   &chr3,
@@ -359,18 +369,37 @@ BLEClientHIDReportCharacteristic* reports[] ={
   &chr11
 };
 
-void disconnect_callback(uint16_t conn_handle, uint8_t reason);
-void connect_callback(uint16_t conn_handle);
-void scan_callback(ble_gap_evt_adv_report_t* report);
-void connection_secured_callback(uint16_t conn_handle);
-bool pair_passkey_callback(uint16_t conn_hdl, uint8_t const passkey[6], bool match_request);
-void pair_passkey_req_callback(uint16_t conn_hdl, uint8_t passkey[6]);
-void pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status);
-void discover(uint16_t conn_handle);
-
+void ble_scan_callback(ble_gap_evt_adv_report_t* report);
+void ble_connect_callback(uint16_t conn_handle);
+void ble_pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status);
+void ble_connection_secured_callback(uint16_t conn_handle);
+void ble_disconnect_callback(uint16_t conn_handle, uint8_t reason);
+// bool pair_passkey_callback(uint16_t conn_hdl, uint8_t const passkey[6], bool match_request);
+// void pair_passkey_req_callback(uint16_t conn_hdl, uint8_t passkey[6]);
+void ble_discovery(uint16_t conn_handle);
 
 void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len);
 
+typedef struct __attribute__((__packed__)) {
+  uint8_t mod;
+  uint8_t reserved;
+  uint8_t key[6];
+} hid_kbd_report_t;
+
+#define MAX_REPORT_PAYLOAD 32
+typedef struct {
+  uint8_t id;
+  uint8_t type;
+  uint8_t len;
+  uint8_t payload[MAX_REPORT_PAYLOAD];
+} hid_report_t;
+
+
+#define MAX_QUEUE_MESSAGE 80
+QueueHandle_t msg_queue;
+
+#define SERIAL_NUMBER_LEN 32
+uint8_t SERIAL_NUMBER[SERIAL_NUMBER_LEN+1]={0};
 
 typedef enum {
   UNKNOWN = 0,
@@ -384,21 +413,36 @@ typedef enum {
   ATTACHED,
   DETACHING,
   DETACHED,
-  IDENTIFIED,
+  AUTHENTICATED,
   RUNNING
 } state_t;
+
+
 
 
 void task_running(void);
 
 
-state_t state = UNKNOWN;
+#define MAX_AUTHENTICATION_RETRY       (3u)
+#define AUTHENTICATION_RETRY_DELAY_MS  (5000u)
+
+static bool sed_authenticate(void);
+bool authenticated;
+
+state_t state;
 
 void setup() {
   // Configure GPIOs
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, 1);
   pinMode(PIN_BUTTON1, INPUT_PULLUP);
+
+  state = UNKNOWN;
+  authenticated= false;
+
+  //TODO Check creation...
+  msg_queue= xQueueCreate(MAX_QUEUE_MESSAGE, sizeof(hid_report_t));
+  
 
   bond_init();
 
@@ -413,21 +457,18 @@ void setup() {
   usb_se.setPollInterval(2);
   usb_se.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
   usb_se.setStringDescriptor("SpeedEditorRemapper");
-  usb_se.setReportCallback(get_report_callback, set_report_callback);
+  usb_se.setReportCallback(usb_get_report_callback, usb_set_report_callback);
   usb_se.begin();
 
   usb_kbd.setStringDescriptor("Remapped Keyboard");
   usb_kbd.begin();
 
 
-  // Declare CDC Serial Interface
+  // Start Debug Serial Interface
   Serial1.begin(115200);
 
-  Serial1.println("\nSpeedEditorRemapper");
+  PRINTF("\nSpeedEditorRemapper\n");
 
-
-  // DO NOT USE - FREEZE BOARD to be investigated !!
-  // Bluefruit.setConnLedInterval(250);
 
   // clear bonds if BUTTON A is pressed
   uint32_t time= millis();
@@ -435,7 +476,7 @@ void setup() {
   {
     if (0 == digitalRead(PIN_BUTTON1))
     {
-      Serial1.println("Clearing all bonds");
+      PRINTF("[BLE] Clearing bonds\n");
       Bluefruit.Central.clearBonds();
       for(int t=0; t<4; ++t)
       {
@@ -450,18 +491,16 @@ void setup() {
   Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
 
 
-  // Set connection secured callback, invoked when connection is encrypted
-  Bluefruit.Security.setSecuredCallback(connection_secured_callback);
   Bluefruit.Security.setIOCaps(false,false,false);
-  // Bluefruit.Security.setMITM(true);
-  Bluefruit.Security.setPairPasskeyCallback(pair_passkey_callback);
+  // // Bluefruit.Security.setMITM(true);
+  // Bluefruit.Security.setPairPasskeyCallback(pair_passkey_callback);
   // Set complete callback to print the pairing result
-  Bluefruit.Security.setPairCompleteCallback(pairing_complete_callback);
+  Bluefruit.Security.setPairCompleteCallback(ble_pairing_complete_callback);
   // Set connection secured callback, invoked when connection is encrypted
-  Bluefruit.Security.setSecuredCallback(connection_secured_callback);
+  Bluefruit.Security.setSecuredCallback(ble_connection_secured_callback);
   // Callbacks for Central
-  Bluefruit.Central.setConnectCallback(connect_callback);
-  Bluefruit.Central.setDisconnectCallback(disconnect_callback);
+  Bluefruit.Central.setConnectCallback(ble_connect_callback);
+  Bluefruit.Central.setDisconnectCallback(ble_disconnect_callback);
 
 
   Bluefruit.begin(0, 1);
@@ -489,16 +528,13 @@ void setup() {
   reportMap.begin(&clientHid);
   hidInfo.begin(&clientHid);
 
-
-
-
   /* Start Central Scanning
    * - Enable auto scan if disconnected
    * - Interval = 100 ms, window = 80 ms
    * - Don't use active scan
    * - Start(timeout) with timeout = 0 will scan forever (until connected)
    */
-  Bluefruit.Scanner.setRxCallback(scan_callback);
+  Bluefruit.Scanner.setRxCallback(ble_scan_callback);
   Bluefruit.Scanner.restartOnDisconnect(true);
   Bluefruit.Scanner.setInterval(160, 80); // in unit of 0.625 ms
   Bluefruit.Scanner.filterUuid(BLEUuid(0x1812));   // only report HID service  
@@ -507,7 +543,7 @@ void setup() {
   state = SCANNING;
 
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
-  Serial1.println("Scanning...");
+  PRINTF("[BLE] Scanning...\n");
   TinyUSBDevice.detach();
 
 }
@@ -534,11 +570,10 @@ void reset_mcu(uint32_t gpregret=0)
 }
 
 
-
 static bool led_state = false;
+static uint32_t last_heartbeat_time=0;
 void loop()
 {
-  static uint32_t last_heartbeat_time=0;
 
   uint32_t now= millis();
   if(now-last_heartbeat_time>250)
@@ -553,58 +588,101 @@ void loop()
   case SCANNING:
     break;
   case DISCONNECTED:
-    Serial1.println("Detaching...");
-    // if(TinyUSBDevice.detach()) {
-    //   Serial1.println("OK");
-    // }
-    // else
-    // {
-    //   Serial1.println("FAILED");
-    // }
+    PRINTF("[USB] Detaching...\n");
     state = DETACHING;
     break;
   case DETACHING:
-    Serial1.println("Detached...");
+    PRINTF("[USB] Detached...\n");
     state = DETACHED;
     break;
   case DETACHED:
-    Serial1.println("Resetting...");
+    PRINTF("[USB] Resetting MCU...\n");
     delay(500);
     reset_mcu();
     break;
   case READY:
-    Serial1.print("Attaching...");
+  {
+    delay(500);
+
+    // Resetting msg queue;
+    xQueueReset(msg_queue);
+
+    // Trying to authenticate SpeedEditor
+    PRINTF("[SED] SpeedEditor Authentication...\n");
+
+    uint8_t retry=MAX_AUTHENTICATION_RETRY;
+    do
+    {
+      if(retry<MAX_AUTHENTICATION_RETRY)
+      {
+        PRINTF("[SED] Retrying...\n");
+        delay(AUTHENTICATION_RETRY_DELAY_MS);
+      }
+      --retry;
+      authenticated = sed_authenticate();
+      if(authenticated){
+        PRINTF("[SED] Authentication...OK\n");
+      } else {
+        PRINTF("[SED] Authentication...FAILED\n");
+      }
+    } while(retry>0 && !authenticated);
+        
+    if(serial_feature_report->read(SERIAL_NUMBER, SERIAL_NUMBER_LEN)==SERIAL_NUMBER_LEN) {
+      PRINTF("[SED] SERIAL: %s\n\n", SERIAL_NUMBER);
+      TinyUSBDevice.setSerialDescriptor((const char*)SERIAL_NUMBER);
+    } else {
+      TinyUSBDevice.setSerialDescriptor(nullptr);
+    }
+
+    PRINTF("[USB] Attaching...");
     if(TinyUSBDevice.attach()) {
-      Serial1.println("OK");
+      PRINTF("OK\n");
     }
     else
     {
-      Serial1.println("FAILED");
+      PRINTF("FAILED\n");
     }
     state = ATTACHING;
     break;
+  }
   case ATTACHING:
+  {
     if(TinyUSBDevice.mounted()) {
-      Serial1.println("Enumerated...");
+      PRINTF("[USB] Enumerated...\n");
       state = ATTACHED;
     }
     break;
+  }
   case ATTACHED:
+    if(authenticated) {
+      state = AUTHENTICATED;
+    }
     break;
-  case IDENTIFIED:
-    // Serial1.println("enabling ble notifications");
-    // for(int t=0; t<11; ++t)
-    // {
-    //   if(reports[t]->canNotify()) {
-    //     Serial1.printf("Notify: %d-%d\n", reports[t]->reportId(),reports[t]->reportType());
-    //     reports[t]->enableNotify();
-    //     delay(10);
-    //   }
-    // }
-    Serial1.println("Identified");
+  case AUTHENTICATED:
+  {
+    if(key_input_report->canNotify()) {
+      key_input_report->setNotifyCallback(ble_reportCallback, false);
+      PRINTF("[BLE] Enabling Key notifications (report %d-%d)\n", key_input_report->reportId(), key_input_report->reportType());
+      key_input_report->enableNotify();
+      delay(30);
+    }
+    if(jog_input_report->canNotify()) {
+      jog_input_report->setNotifyCallback(ble_reportCallback, false);
+      PRINTF("[BLE] Enabling Jog notifications (report %d-%d)\n", jog_input_report->reportId(), jog_input_report->reportType());
+      jog_input_report->enableNotify();
+      delay(30);
+    }
+    if(batt_input_report->canNotify()) {
+      batt_input_report->setNotifyCallback(ble_reportCallback, false);
+      PRINTF("[BLE] Enabling Batt notifications (report %d-%d)\n", batt_input_report->reportId(), batt_input_report->reportType());
+      batt_input_report->enableNotify();
+      delay(30);
+    }
+    PRINTF("\nAll set - ready to go !!\n");
     delay(100);
     state = RUNNING;
     break;
+  }
   case RUNNING:
   {
     task_running();
@@ -618,21 +696,6 @@ void loop()
 
 
 
-typedef struct __attribute__((__packed__)) {
-  uint8_t mode;
-  int32_t position;
-  uint8_t reserved;
-} jog_report_t;
-
-
-typedef struct __attribute__((__packed__)) {
-  uint8_t mod;
-  uint8_t reserved;
-  uint8_t key[6];
-} hid_kbd_report_t;
-
-jog_report_t jog_report = {0};
-
 uint16_t  key_se[2][6] = {0};
 keymap_t* key_kbd[2][6] = {0};
 
@@ -642,145 +705,125 @@ uint16_t* pprv_key_se=key_se[1];
 keymap_t** pcur_key_kbd=key_kbd[0];  
 keymap_t** pprv_key_kbd=key_kbd[1];
 
+hid_report_t report;
+
 void task_running(void)
 {
-  static uint32_t last_report_time=0;
-  static uint16_t report_idx=0;
-  uint32_t now = millis();
+  // Read pending message from queue
+  if(xQueueReceive(msg_queue, &report, 0) == pdFALSE) return;
 
-  // // Send any pending usb keyboard report.
-  // if(key_buffer_len>0 && usb_kbd.ready())
-  // {
-  //   usb_kbd.keyboardReport(0, key_buffer[key_buffer_tail].mod, key_buffer[key_buffer_tail].key);
-  //   --key_buffer_len;
-  //   key_buffer_tail = (key_buffer_tail+1)%MAX_KEY_BUFFER_LEN;
-  // }
-
-  if(now-last_report_time<40) return;
-  last_report_time=now;
-
-  uint8_t  report[64];
-  uint16_t report_len=0;
-  uint8_t  report_id=0;
-  switch(report_idx)
+  if(report.id==4 && report.type==1 && report.len!=0 && usb_se.ready())
   {
-    case 0:
-    case 1:
-      // Process jog report:
-      // report_id = 3
-      // payload   = uint8_t(mode) + int32_t(value) + int8_t(??)
-      // No remapping. Just forward to usb hid.
-      report_id = jog_input_report->reportId();
-      report_len = jog_input_report->read(report, 6 /*64*/);
-      if(report_len && usb_se.ready() && memcmp(report, &jog_report, report_len)!=0) 
-      {
-        led_state=!led_state;
-        digitalWrite(LED_BUILTIN, !led_state);
-        memcpy(&jog_report, report, report_len);
-        usb_se.sendReport(report_id, report, report_len);
-      }
-      break;
-    case 2:
-      // Process key report:
-      // report_id=4
-      // payload  =6*uint16_t (keycodes in little-endian format)
-      // Filter keys based on remapping configuration.
-      // 
-      report_id = key_input_report->reportId();
-      report_len = key_input_report->read(report, 6*sizeof(uint16_t) /*64*/);
-      if(report_len) 
-      {
-        // Swap SE key buffers and clear the new current buffer;
-        uint16_t *tmp_se;
-        tmp_se= pprv_key_se;
-        pprv_key_se= pcur_key_se;
-        pcur_key_se= tmp_se;
-        memclr(pcur_key_se,6*sizeof(uint16_t));
+    // Process key report:
+    // report_id=4
+    // payload  =6*uint16_t (keycodes in little-endian format)
+    // Filter keys based on remapping configuration.
 
-        // Swap the KBD key buffers and clear the new current buffer;
-        keymap_t** tmp_kbd= pprv_key_kbd;
-        pprv_key_kbd= pcur_key_kbd;
-        pcur_key_kbd= tmp_kbd;
-        memclr(pcur_key_kbd,6*sizeof(keymap_t*));
-        
+    // Swap SE key buffers and clear the new current buffer;
+    uint16_t *tmp_se;
+    tmp_se= pprv_key_se;
+    pprv_key_se= pcur_key_se;
+    pcur_key_se= tmp_se;
+    memclr(pcur_key_se,6*sizeof(uint16_t));
 
-        // Fill current buffers with new key.
-        uint16_t* pkey_se= pcur_key_se;
-        keymap_t** pkey_kbd= pcur_key_kbd;
-        uint16_t key;
-        uint16_t *pkey=(uint16_t*)report;
-        for(size_t t=0; t<6; ++t,++pkey)
-        {
-          key=*pkey;
-          if(!key) continue;
-          keymap_t* remapped=0;
-          for(size_t u=0; !remapped && u<KEYMAP_SIZE; ++u)
-          {
-            if(key == keymap[u].se_key) remapped= &keymap[u];
-          }
-          if(remapped) {
-            *pkey_kbd++=remapped;
-          } else {
-            *pkey_se++=key;
-          }
-        }
-        bool comm_led=led_state;
-        // Send SpeedEditor key report
-        if(usb_se.ready() && memcmp(pcur_key_se, pprv_key_se, 6*sizeof(uint16_t))!=0)
-        {
-          comm_led=!led_state;
-          digitalWrite(LED_BUILTIN, comm_led);
-          usb_se.sendReport(report_id, pcur_key_se, 6*sizeof(uint16_t));
-          Serial.printf("SE: ");
-          for(int t=0; t<6; ++t) Serial.printf("0x%04X ",pcur_key_se[t]);
-          Serial.printf("\n");
-        }
-        // Send kbd report
-        if(usb_kbd.ready() && memcmp(pcur_key_kbd, pprv_key_kbd, 6*sizeof(keymap_t*))!=0)
-        {
-          comm_led=!led_state;
-          digitalWrite(LED_BUILTIN, comm_led);
-          hid_kbd_report_t kbd_report= {0};
-          pkey_kbd= pcur_key_kbd;
-          int u=0;
-          for(int t=0; t<6; ++t, ++pkey_kbd)
-          {
-            if(!(*pkey_kbd)) continue;
-            kbd_report.mod |= (*pkey_kbd)->kbd_mod;
-            kbd_report.key[u++]= (*pkey_kbd)->kbd_key;
-          }
-          usb_kbd.sendReport(0, &kbd_report, sizeof(hid_kbd_report_t));
-          Serial1.printf("KBD: %02X - ",kbd_report.mod);
-          for(int t=0; t<6; ++t) Serial1.printf("0x%02X ",kbd_report.key[t]);
-          Serial1.printf("\n");
-        }
-        led_state = comm_led;
+    // Swap the KBD key buffers and clear the new current buffer;
+    keymap_t** tmp_kbd= pprv_key_kbd;
+    pprv_key_kbd= pcur_key_kbd;
+    pcur_key_kbd= tmp_kbd;
+    memclr(pcur_key_kbd,6*sizeof(keymap_t*));
+      
+    // Fill current buffers with new keys.
+    uint16_t* pkey_se= pcur_key_se;
+    keymap_t** pkey_kbd= pcur_key_kbd;
+    uint16_t key;
+    uint16_t *pkey=(uint16_t*)report.payload;
+    for(size_t t=0; t<6; ++t,++pkey)
+    {
+      key=*pkey;
+      if(!key) continue;
+      keymap_t* remapped=0;
+      for(size_t u=0; !remapped && u<KEYMAP_SIZE; ++u)
+      {
+        if(key == keymap[u].se_key) remapped= &keymap[u];
       }
-      break;
+      if(remapped) {
+        *pkey_kbd++=remapped;
+      } else {
+        *pkey_se++=key;
+      }
+    }
+    bool comm_led=led_state;
+    // Send SpeedEditor key report
+    if(usb_se.ready() && memcmp(pcur_key_se, pprv_key_se, 6*sizeof(uint16_t))!=0)
+    {
+      comm_led=!led_state;
+      digitalWrite(LED_BUILTIN, comm_led);
+      last_heartbeat_time=millis()-50;
+      usb_se.sendReport(report.id, pcur_key_se, 6*sizeof(uint16_t));
+      PRINTF("[USB] SED: ");
+      for(int t=0; t<6; ++t) PRINTF("%04X ",pcur_key_se[t]);
+      PRINTF("\n");
+    }
+    // Send kbd report
+    if(usb_kbd.ready() && memcmp(pcur_key_kbd, pprv_key_kbd, 6*sizeof(keymap_t*))!=0)
+    {
+      comm_led=!led_state;
+      digitalWrite(LED_BUILTIN, comm_led);
+      last_heartbeat_time=millis()-50;
+      hid_kbd_report_t kbd_report= {0};
+      pkey_kbd= pcur_key_kbd;
+      int u=0;
+      for(int t=0; t<6; ++t, ++pkey_kbd)
+      {
+        if(!(*pkey_kbd)) continue;
+        kbd_report.mod |= (*pkey_kbd)->kbd_mod;
+        kbd_report.key[u++]= (*pkey_kbd)->kbd_key;
+      }
+      usb_kbd.sendReport(0, &kbd_report, sizeof(hid_kbd_report_t));
+      PRINTF("[USB] KBD: %02X - ",kbd_report.mod);
+      for(int t=0; t<6; ++t) PRINTF("0x%02X ",kbd_report.key[t]);
+      PRINTF("\n");
+    }
+    led_state = comm_led;
+    return;
   }
-  report_idx= (report_idx+1)%3;
+
+  // Forward other reports
+  // jog input reports:
+  //   report.id=3
+  //   report.type=1
+  //   report.len=6
+  // battery input reports:
+  //   report.id=7
+  //   report.type=1 
+  //   report.len=2
+
+  last_heartbeat_time= millis()-50;
+  led_state=!led_state;
+  digitalWrite(LED_BUILTIN, led_state);
+  usb_se.sendReport(report.id, report.payload, report.len);
 }
 
 
-void discover(uint16_t conn_handle)
+void ble_discovery(uint16_t conn_handle)
 {
-  Serial1.println("Discovering");
+  PRINTF("[BLE] Discovery...\n\n");
 
-  Serial1.print("Discovering Device Information ... ");
+  PRINTF("[BLE] Device Information Service...");
   if ( clientDis.discover(conn_handle) )
   {
-    Serial1.println("Found");
+    PRINTF("FOUND\n");
     char buffer[64+1];
     
     memset(buffer, 0, sizeof(buffer));
     uint16_t count;
     if ( (count=clientDis.getChars(UUID16_CHR_PNP_ID, buffer, sizeof(buffer)))!=0 )
     {
-      Serial1.println("PNP_ID: ");
-      Serial1.printf ("  src: %d\n",   *(uint8_t*)(&buffer[0]));
-      Serial1.printf ("  vid: %04X\n", *(uint16_t*)(&buffer[1]));
-      Serial1.printf ("  pid: %04X\n", *(uint16_t*)(&buffer[3]));
-      Serial1.printf ("  ver: %04X\n", *(uint16_t*)(&buffer[5]));
+      PRINTF("[DIS] PNP_ID:\n");
+      PRINTF("[DIS]   src: %d\n",   *(uint8_t*)(&buffer[0]));
+      PRINTF("[DIS]   vid: %04X\n", *(uint16_t*)(&buffer[1]));
+      PRINTF("[DIS]   pid: %04X\n", *(uint16_t*)(&buffer[3]));
+      PRINTF("[DIS]   ver: %04X\n", *(uint16_t*)(&buffer[5]));
       // TODO Check VID/PID
     }
 
@@ -788,119 +831,118 @@ void discover(uint16_t conn_handle)
     memset(buffer, 0, sizeof(buffer));
     if ( clientDis.getManufacturer(buffer, sizeof(buffer)) )
     {
-      Serial1.print("Manufacturer: ");
-      Serial1.println(buffer);
+      PRINTF("[DIS] Manufacturer: %s\n", buffer);
     }
     // read and print out Model Number
     memset(buffer, 0, sizeof(buffer));
     if ( clientDis.getModel(buffer, sizeof(buffer)) )
     {
-      Serial1.print("Model: ");
-      Serial1.println(buffer);
+      PRINTF("[DIS] Model: %s\n", buffer);
     }
-
-    Serial1.println();
   }else
   {
-    Serial1.println("Found NONE");
+    PRINTF("...NOT FOUND\n");
   }
+  PRINTF("\n");
 
-  Serial1.print("Discovering HID ... ");
+  PRINTF("[BLE] HID Service...");
   if ( clientHid.discover(conn_handle) )
   {
-    Serial1.println("Found");
+    PRINTF("FOUND\n");
 
     uint16_t count;
 
     count = Bluefruit.Discovery.discoverCharacteristic(conn_handle, chrs, sizeof(chrs)/sizeof(chrs[0]));
-    Serial1.printf("Found %d characteristics\n", count);
+    PRINTF("[HID] Found %d characteristics\n", count);
+    PRINTF("[HID] -HIDInfo\n");
+    PRINTF("[HID] -HIDReportMap\n");
     for(int t=0; t<11; ++t)
     {
       if(chrs[t]->discovered())
       {
         delay(10); // Needed to give some time to the stack to finilized its internal processing.
         BLEClientHIDReportCharacteristic* pchr= (BLEClientHIDReportCharacteristic*)chrs[t];
-        Serial1.printf("report ref[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+        PRINTF("[HID] -HIDReport[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+        if(pchr->reportId()==1 && pchr->reportType()==3) identity_feature_report= pchr;
+        if(pchr->reportId()==2 && pchr->reportType()==2) leds_output_report= pchr;
         if(pchr->reportId()==3 && pchr->reportType()==1) jog_input_report= pchr;
+        if(pchr->reportId()==3 && pchr->reportType()==2) jog_mode_output_report= pchr;
         if(pchr->reportId()==4 && pchr->reportType()==1) key_input_report= pchr;
-        if(chrs[t]->canNotify()) pchr->setNotifyCallback(ble_reportCallback);
-        if(chrs[t]->canIndicate()) pchr->setIndicateCallback(ble_reportCallback);
+        if(pchr->reportId()==4 && pchr->reportType()==2) jog_led_output_report= pchr;
+        if(pchr->reportId()==5 && pchr->reportType()==3) unknown_feature_report= pchr;
+        if(pchr->reportId()==6 && pchr->reportType()==3) auth_feature_report= pchr;
+        if(pchr->reportId()==7 && pchr->reportType()==1) batt_input_report= pchr;
+        if(pchr->reportId()==7 && pchr->reportType()==3) batt_feature_report= pchr;
+        if(pchr->reportId()==8 && pchr->reportType()==3) serial_feature_report= pchr;
       }
     }
     delay(10); // Needed to give some time to the stack to finilized its internal processing.
   }else
   {
-    Serial1.println("Found NONE");
+    PRINTF("FAILED\n");
   }
+  PRINTF("\n");
   
 
-  Serial1.print("Discovering Battery ... ");
-  if ( clientBas.discover(conn_handle) )
-  {
-    Serial1.println("Found");
-    delay(100);
-    Serial1.printf("Battery level: %d%%\n",clientBas.read());
-
-  }else
-  {
-    Serial1.println("Found NONE");
+  PRINTF("[BLE] Battery Service...");
+  if ( clientBas.discover(conn_handle) ) {
+    PRINTF("FOUND\n");
+  } else {
+    PRINTF("NOT FOUND\n");
   }
+  PRINTF("\n");
 
   delay(100);
   BLEConnection* conn = Bluefruit.Connection( conn_handle );
   uint16_t mtu = Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL);
-  Serial1.printf("Requesting MTU=%d\n", mtu);
-  if(!conn->requestMtuExchange(mtu))
-  {
-    Serial1.println("MTU Request failed !!");
+  PRINTF("[BLE] Requesting MTU=%d  ...", mtu);
+  if(!conn->requestMtuExchange(mtu)) {
+    PRINTF("FAILED\n");
+  } else {
+    PRINTF("OK\n");
   }
   delay(100);
-  Serial1.printf("Requesting Connection parameters update\n");
-  if(!conn->requestConnectionParameter(6))
-  {
-    Serial1.println("Connection parameter update failed !!");
+  PRINTF("[BLE] Requesting Connection parameters update...");
+  if(!conn->requestConnectionParameter(6)) {
+    PRINTF("FAILED\n");
+  } else {
+    PRINTF("OK\n");
   }
-  delay(100);
-
+  PRINTF("\n");
 
   state = READY;
-  Serial1.println("Ready to receive from peripheral");
+  PRINTF("[BLE] SpeedEditor Client configured...\n\n");
 }
 
 
 // Invoked when received GET_REPORT control request
 // Application must fill buffer report's content and return its length.
 // Return zero will cause the stack to STALL request
-uint16_t get_report_callback (uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
+uint16_t usb_get_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
-  // not used in this example
-  (void) report_id;
-  (void) report_type;
-  (void) buffer;
-  (void) reqlen;
 
   if(state < READY) return 0;
 
   uint16_t len=0;
   for(int t=0; t<11; ++t)
   {
-    if(reports[t]->reportId() == report_id && reports[t]->reportType() == report_type )
+    if(report_chrs[t]->reportId() == report_id && report_chrs[t]->reportType() == report_type )
     {
       delay(15);
-      len = reports[t]->read(buffer, reqlen);
+      len = report_chrs[t]->read(buffer, reqlen);
       break;
     }
   }
-  Serial1.printf("getReport: ID=%d, Type=%d, Len=%d: ", report_id, report_type, reqlen);
+  PRINTF("[USB] getReport: %d - %d: ", report_id, report_type, reqlen);
   for(int t=0; t<len; ++t)
   {
-    Serial1.printf("%02X ", buffer[t]);
+    PRINTF("%02X ", buffer[t]);
   }
-  Serial1.println();
+  PRINTF("\n");
  
-  if(report_id==6 && report_type==3 && buffer[0]==0x04 && buffer[1]==0x58 && buffer[2]==0x02)
+  if(state!=RUNNING && report_id==6 && report_type==3 && buffer[0]==0x04 && buffer[1]==0x58 && buffer[2]==0x02)
   {
-    state = IDENTIFIED;
+    state = AUTHENTICATED;
   }
 
   return len;
@@ -908,12 +950,8 @@ uint16_t get_report_callback (uint8_t report_id, hid_report_type_t report_type, 
 
 // Invoked when received SET_REPORT control request or
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
-void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
+void usb_set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
 {
-  // This example doesn't use multiple report and report ID
-  (void) report_id;
-  (void) report_type;
-
   if(state < READY) return;
 
   if(report_id==0 && report_type==0)
@@ -925,25 +963,277 @@ void set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8
   }
   for(int t=0; t<11; ++t)
   {
-    if(reports[t]->reportId() == report_id && reports[t]->reportType() == report_type )
+    if(report_chrs[t]->reportId() == report_id && report_chrs[t]->reportType() == report_type )
     {
       delay(15);
-      reports[t]->write_resp(buffer, bufsize);
+      report_chrs[t]->write_resp(buffer, bufsize);
       break;
     }
   }
 
-  Serial1.printf("setReport: ID=%d, Type=%d, Len=%d: ", report_id, report_type, bufsize);
-  for(int t=0; t<bufsize; ++t)
-  {
-    Serial1.printf("%02X ", buffer[t]);
+  PRINTF("[USB] setReport: %d - %d: ", report_id, report_type, bufsize);
+  for(int t=0; t<bufsize; ++t) {
+    PRINTF("%02X ", buffer[t]);
   }
-  Serial1.println();
-  // echo back anything we received from host
-  // usb_hid.sendReport(0, buffer, bufsize);
+  PRINTF("\n");
 }
 
 
+
+
+/**
+ * Callback invoked when scanner pick up an advertising data
+ * @param report Structural advertising data
+ */
+void ble_scan_callback(ble_gap_evt_adv_report_t* report)
+{
+  // Connect to device with bleuart service in advertising
+  Bluefruit.Central.connect(report);
+}
+
+/**
+ * Callback invoked when an connection is established
+ * @param conn_handle
+ */
+void ble_connect_callback(uint16_t conn_handle)
+{
+  BLEConnection* conn = Bluefruit.Connection(conn_handle);
+
+  PRINTF("[BLE] Connected\n");
+
+  // HID device mostly require pairing/bonding
+  if(!conn->bonded()) {
+    PRINTF("[BLE] Request pairing...\n");
+    conn->requestPairing();
+  }
+  else
+  {
+    PRINTF("[BLE] Bonded...\n");
+  }
+}
+
+/**
+ * Callback invoked when a connection is dropped
+ * @param conn_handle
+ * @param reason is a BLE_HCI_STATUS_CODE which can be found in ble_hci.h
+ */
+void ble_disconnect_callback(uint16_t conn_handle, uint8_t reason)
+{
+  (void) conn_handle;
+  (void) reason;
+  PRINTF("[BLE] Disconnected, reason = 0x%02X\n",reason);
+  state = DISCONNECTED;
+}
+
+
+void ble_pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status)
+{
+  BLEConnection* conn = Bluefruit.Connection(conn_handle);
+
+  if (auth_status != BLE_GAP_SEC_STATUS_SUCCESS)
+  {
+    PRINTF("[BLE] Pairing...FAILED\n");
+
+    // disconnect
+    conn->disconnect();
+    return;
+  }
+
+  PRINTF("[BLE] Pairing...OK\n\n");
+
+  ble_discovery(conn_handle);
+}
+
+
+
+void ble_connection_secured_callback(uint16_t conn_handle)
+{
+  BLEConnection* conn = Bluefruit.Connection(conn_handle);
+
+  if ( !conn->secured() )
+  {
+    // It is possible that connection is still not secured by this time.
+    // This happens (central only) when we try to encrypt connection using stored bond keys
+    // but peer reject it (probably it remove its stored key).
+    // Therefore we will request an pairing again --> callback again when encrypted
+    PRINTF("[BLE] Not secured - request pairing");  
+    conn->requestPairing();
+  }
+  else
+  {
+    PRINTF("[BLE] Secured...\n");
+    if(conn->bonded())
+    {
+
+      BLEConnection* conn = Bluefruit.Connection( conn_handle );
+      bond_keys_t key;
+      conn->loadBondKey(&key);
+
+      uint8_t klen = key.own_enc.enc_info.ltk_len;
+      uint8_t kauth= key.own_enc.enc_info.auth;
+      uint8_t klesc= key.own_enc.enc_info.lesc;
+      PRINTF("[BLE] -LTK[%d:%d:%d]: 0x",klen,kauth,klesc);
+      for(int t=klen-1; t>=0; --t)
+      {
+        PRINTF("%02X",key.own_enc.enc_info.ltk[t]);
+      }
+      PRINTF("\n\n");
+
+
+      ble_discovery(conn_handle);
+    }
+  }
+}
+
+
+
+void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
+{
+  BLEClientHIDReportCharacteristic* report_chr= (BLEClientHIDReportCharacteristic*)chr;
+  hid_report_t report;
+  //TODO filter reports
+  PRINTF("[BLE] notif: %d - %d: ", report_chr->reportId(), report_chr->reportType());
+  for(int t=0; t<len; ++t) PRINTF("%02X ", data[t]);
+  PRINTF("\n");
+
+  if(state!=RUNNING || len>=MAX_REPORT_PAYLOAD) {
+    PRINTF("[BLE] notif ignored\n");
+    return;
+  }
+
+  report.id = report_chr->reportId();
+  report.type = report_chr->reportType();
+  report.len = len;
+  memcpy(report.payload, data, len);
+  xQueueSend(msg_queue, &report, 10*portTICK_PERIOD_MS);
+}
+
+
+
+static const uint64_t	AUTH_EVEN_TBL[] = {
+		0x3ae1206f97c10bc8,
+		0x2a9ab32bebf244c6,
+		0x20a6f8b8df9adf0a,
+		0xaf80ece52cfc1719,
+		0xec2ee2f7414fd151,
+		0xb055adfd73344a15,
+		0xa63d2e3059001187,
+		0x751bf623f42e0dde
+};
+
+static const uint64_t AUTH_ODD_TBL[] = {
+		0x3e22b34f502e7fde,
+		0x24656b981875ab1c,
+		0xa17f3456df7bf8c3,
+		0x6df72e1941aef698,
+		0x72226f011e66ab94,
+		0x3831a3c606296b42,
+		0xfd7ff81881332c89,
+		0x61a3f6474ff236c6
+};
+
+static const uint64_t MASK = 0xa79a63f585d37bf0;
+
+
+static uint64_t rol8(uint64_t v)
+{
+	return ((v << 56) | (v >> 8)) & 0xffffffffffffffff;
+}
+
+static uint64_t rol8n(uint64_t v, uint16_t n)
+{
+	for(uint16_t i=0; i<n; ++i) v = rol8(v);
+	return v;
+}
+
+
+static uint64_t compute_auth(uint64_t challenge)
+{
+	uint16_t n = challenge & 7;
+	uint64_t v = rol8n(challenge, n);
+  uint64_t k;
+
+	if( (v & 1) == ((0x78 >> n) & 1) )
+  {
+		k = AUTH_EVEN_TBL[n];
+  }
+	else
+  {
+		v = v ^ rol8(v);
+		k = AUTH_ODD_TBL[n];
+  }
+	return v ^ (rol8(v) & MASK) ^ k;
+}
+
+
+typedef struct __attribute__((packed)) {
+  uint8_t  id;
+  union {
+    uint64_t value;
+    uint8_t  bytes[8];
+    uint16_t words[4];
+    uint32_t dwords[2];
+  };
+} challenge_t;
+
+
+static bool sed_authenticate(void)
+{
+  challenge_t token;
+  challenge_t challenge;
+
+  // Clear challenge FSM
+  
+  token.id=0;
+  token.value=0;
+  PRINTF("[SED] Resetting Auth FSM   : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  delay(40);
+  auth_feature_report->write_resp(&token, sizeof(challenge_t));
+
+  
+  delay(40);
+  auth_feature_report->read(&challenge, sizeof(challenge_t));
+  PRINTF("[SED] Reading kbd challenge: %02X - %08lX%08lX\n", challenge.id, challenge.dwords[1], challenge.dwords[0]);
+  if(challenge.id!=0)
+  {
+    return false;
+  }
+
+  token.id= 1;
+  token.value=0;
+  PRINTF("[SED] Sending our challenge: %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  delay(40);
+  auth_feature_report->write_resp(&token, sizeof(challenge_t));
+
+  
+  delay(40);
+  auth_feature_report->read(&token, sizeof(challenge_t));
+  PRINTF("[SED] Reading kbd response : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  if(token.id!=2)
+  {
+    return false;
+  }
+
+  challenge.id = 3;
+  challenge.value = compute_auth(challenge.value);
+  PRINTF("[SED] Sending our response : %02X - %08lX%08lX\n", challenge.id, challenge.dwords[1], challenge.dwords[0]);
+  delay(40);
+  auth_feature_report->write_resp(&challenge, sizeof(challenge_t));
+
+  delay(40);
+  auth_feature_report->read(&token, sizeof(challenge_t));
+  PRINTF("[SED] Reading Auth result  : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  if(token.id!=4)
+  {
+    return false;
+  }
+  return true;
+}
+
+
+//-----------------------------------------------------------
+// DavinciResolve_USBD_Vendor class definition
+//-----------------------------------------------------------
 
 uint8_t DavinciResolve_USBD_Vendor::_instance_count = 0;
 
@@ -952,7 +1242,6 @@ uint8_t DavinciResolve_USBD_Vendor::_instance_count = 0;
 #define EPIN 0x80
 
 
-// Baud and config is ignore in CDC
 void DavinciResolve_USBD_Vendor::begin() {
   // already called begin()
   if (isValid()) {
@@ -971,8 +1260,6 @@ void DavinciResolve_USBD_Vendor::begin() {
 
 uint16_t DavinciResolve_USBD_Vendor::getInterfaceDescriptor(uint8_t itfnum, uint8_t *buf, uint16_t bufsize)
 {
-  // CDC is mostly always existed for DFU
-  // usb core will automatically update endpoint number
   uint8_t desc[] = {TUD_VENDOR_DESCRIPTOR(itfnum, 0, EPOUT, EPIN, 1)};
   uint16_t const len = sizeof(desc);
 
@@ -982,122 +1269,4 @@ uint16_t DavinciResolve_USBD_Vendor::getInterfaceDescriptor(uint8_t itfnum, uint
 
   memcpy(buf, desc, len);
   return len;
-}
-
-/**
- * Callback invoked when scanner pick up an advertising data
- * @param report Structural advertising data
- */
-void scan_callback(ble_gap_evt_adv_report_t* report)
-{
-  // Connect to device with bleuart service in advertising
-  Bluefruit.Central.connect(report);
-}
-
-/**
- * Callback invoked when an connection is established
- * @param conn_handle
- */
-void connect_callback(uint16_t conn_handle)
-{
-  BLEConnection* conn = Bluefruit.Connection(conn_handle);
-
-  Serial1.println("Connected");
-
-  // Serial1.println("Request MTU exchange: 128");
-  // conn->requestMtuExchange(128);
-  // delay(100);
-  // Serial1.printf("MTU=%d\n", conn->getMtu());
-
-  // HID device mostly require pairing/bonding
-  if(!conn->bonded()) {
-    Serial1.println("Request pairing...");
-    conn->requestPairing();
-  }
-  else
-  {
-    Serial1.println("Bonded...");
-    // discover(conn_handle);
-    // ready = true;
-  }
-}
-
-/**
- * Callback invoked when a connection is dropped
- * @param conn_handle
- * @param reason is a BLE_HCI_STATUS_CODE which can be found in ble_hci.h
- */
-void disconnect_callback(uint16_t conn_handle, uint8_t reason)
-{
-  (void) conn_handle;
-  (void) reason;
-  Serial1.print("Disconnected, reason = 0x"); Serial1.println(reason, HEX);
-  state = DISCONNECTED;
-}
-
-
-bool pair_passkey_callback(uint16_t conn_hdl, uint8_t const passkey[6], bool match_request)
-{
-  Serial1.println("Pairing passkey");
-  Serial1.printf("      %.3s %.3s\n\n", passkey, passkey+3);
-  Serial1.println("pair_passkey_callback");
-  return true;
-}
-
-
-void pair_passkey_req_callback(uint16_t conn_hdl, uint8_t passkey[6])
-{
-  Serial1.println("pair_passkey_req_callback");
-}
-
-void pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status)
-{
-  BLEConnection* conn = Bluefruit.Connection(conn_handle);
-
-  if (auth_status != BLE_GAP_SEC_STATUS_SUCCESS)
-  {
-    Serial1.println("Failed");
-
-    // disconnect
-    conn->disconnect();
-    return;
-  }
-
-  Serial1.println("Succeeded");
-
-  discover(conn_handle);
- 
-}
-
-
-
-void connection_secured_callback(uint16_t conn_handle)
-{
-  BLEConnection* conn = Bluefruit.Connection(conn_handle);
-
-  if ( !conn->secured() )
-  {
-    // It is possible that connection is still not secured by this time.
-    // This happens (central only) when we try to encrypt connection using stored bond keys
-    // but peer reject it (probably it remove its stored key).
-    // Therefore we will request an pairing again --> callback again when encrypted
-    Serial1.println("Not secured - request pairing");  
-    conn->requestPairing();
-  }
-  else
-  {
-    Serial1.println("Secured");
-    if(conn->bonded())
-    {
-      discover(conn_handle);
-    }
-  }
-}
-
-void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
-{
-  BLEClientHIDReportCharacteristic* report= (BLEClientHIDReportCharacteristic*)chr;
-  Serial1.printf("notification: %d - %d: ", report->reportId(), report->reportType());
-  for(int t=0; t<len; ++t) Serial1.printf("%02X ", data[t]);
-  Serial1.println();
 }

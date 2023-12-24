@@ -12,7 +12,8 @@ report ID 4: jog leds     (out)
 report ID 7: battery
 
 
-
+000000000000000000
+010000000000000000
 
 
 
@@ -82,3 +83,11 @@ setReport: ID=2, Type=2, Len=4: 00 00 00 00
 getReport: ID=7, Type=1, Len=2: 00 5F
 setReport: ID=4, Type=2, Len=1: 00
 setReport: ID=2, Type=2, Len=4: 00 00 00 00
+
+
+setReport: ID=6, Type=3, Len=9: 00 00 00 00 00 00 00 00 00
+getReport: ID=6, Type=3, Len=9: 00 5B CA 06 0E 96 33 54 1A
+setReport: ID=6, Type=3, Len=9: 01 D5 8C AE DD D4 FF 6E FA
+getReport: ID=6, Type=3, Len=9: 02 26 B7 D8 87 69 9D 4F 41
+setReport: ID=6, Type=3, Len=9: 03 A0 30 8B 0E C9 FF 33 E5
+getReport: ID=6, Type=3, Len=9: 04 58 02 00 00 00 00 00 00
