@@ -418,6 +418,14 @@ typedef enum {
 } state_t;
 
 
+#if defined(BOARD_ADAFRUIT_FEATHER_NRF52840)
+#define LED_STATE_OFF (!LED_STATE_ON)
+#elif defined(BOARD_MDK_NRF52840_DONGLE)
+
+#else
+#error Unsupported board
+#endif
+
 
 
 void task_running(void);
@@ -434,7 +442,7 @@ state_t state;
 void setup() {
   // Configure GPIOs
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, 1);
+  digitalWrite(LED_BUILTIN, LED_STATE_ON);
   pinMode(PIN_BUTTON1, INPUT_PULLUP);
 
   state = UNKNOWN;
@@ -480,14 +488,17 @@ void setup() {
       Bluefruit.Central.clearBonds();
       for(int t=0; t<4; ++t)
       {
-        digitalWrite(LED_BUILTIN, 0);
+        digitalWrite(LED_BUILTIN, LED_STATE_OFF);
         delay(250);
-        digitalWrite(LED_BUILTIN, 1);
+        digitalWrite(LED_BUILTIN, LED_STATE_ON);
         delay(250);
       }
       break;
     }
   }
+  digitalWrite(LED_BUILTIN, LED_STATE_OFF);
+
+
   Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
 
 
@@ -570,13 +581,13 @@ void reset_mcu(uint32_t gpregret=0)
 }
 
 
-static bool led_state = false;
+static bool led_state = LED_STATE_OFF;
 static uint32_t last_heartbeat_time=0;
 void loop()
 {
 
   uint32_t now= millis();
-  if(now-last_heartbeat_time>250)
+  if((state >= READY) && (now-last_heartbeat_time > 250))
   {
     last_heartbeat_time=now;
     led_state=!led_state;
