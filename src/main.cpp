@@ -6,67 +6,18 @@
 #include "HardwareSerial.h"
 #include "BLEClientHIDReportCharacteristic.h"
 
-#include"hid_key.h"
+#include "hid_key.h"
+#include "sed_key.h"
+#include "sed_hid_desc.h"
 
+// #define PROPS_BCAST         (0b00000001)
+// #define PROPS_READ          (0b00000010)
+// #define PROPS_WRITE_NO_RSP  (0b00000100)
+// #define PROPS_WRITE         (0b00001000)
+// #define PROPS_NOTFY         (0b00010000)
+// #define PROPS_INDICATE      (0b00100000)
+// #define PROPS_AUTHS_WR      (0b01000000)
 
-#define PROPS_BCAST         (0b00000001)
-#define PROPS_READ          (0b00000010)
-#define PROPS_WRITE_NO_RSP  (0b00000100)
-#define PROPS_WRITE         (0b00001000)
-#define PROPS_NOTFY         (0b00010000)
-#define PROPS_INDICATE      (0b00100000)
-#define PROPS_AUTHS_WR      (0b01000000)
-
-#define KEY_SE_NONE			 0x00 //NO KEY
-
-#define KEY_SE_SMART_INSRT		 0x01 //SMART INSRT [CLIP]
-#define KEY_SE_APPND			 0x02 //APPND [CLIP]
-#define KEY_SE_RIPL_OWR		 0x03 //RIPL O/WR
-#define KEY_SE_CLOSE_UP		 0x04 //CLOSE UP [YPOS]
-#define KEY_SE_PLACE_ON_TOP	 0x05 //PLACE ON TOP
-#define KEY_SE_SRC_OWR			 0x06 //SRC O/WR
-
-#define KEY_SE_IN				 0x07 //IN [CLR]
-#define KEY_SE_OUT				 0x08 //OUT [CLR]
-#define KEY_SE_TRIM_IN			 0x09 //TRIM IN
-#define KEY_SE_TRIM_OUT		 0x0a //TRIM OUT
-#define KEY_SE_ROLL			 0x0b //ROLL [SLIDE]
-#define KEY_SE_SLIP_SRC		 0x0c //SLIP SRC
-#define KEY_SE_SLIP_DEST		 0x0d //SLIP DEST
-#define KEY_SE_TRANS_DUR		 0x0e //TRANS DUR [SET]
-#define KEY_SE_CUT				 0x0f //CUT
-#define KEY_SE_DIS				 0x10 //DIS
-#define KEY_SE_SMTH_CUT		 0x11 //SMTH CUT
-
-#define KEY_SE_SOURCE			 0x1a //SOURCE
-#define KEY_SE_TIMELINE		 0x1b //TIMELINE
-
-#define KEY_SE_SHTL			 0x1c //SHTL
-#define KEY_SE_JOG				 0x1d //JOG
-#define KEY_SE_SCRL			 0x1e //SCRL
-
-#define KEY_SE_ESC				 0x31 //ESC [UNDO]
-#define KEY_SE_SYNC_BIN		 0x1f //SYNC BIN
-#define KEY_SE_AUDIO_LEVEL		 0x2c //AUDIO LEVEL [MARK]
-#define KEY_SE_FULL_VIEW		 0x2d //FULL VIEW [RVW]
-#define KEY_SE_TRANS			 0x22 //TRANS [TITLE]
-#define KEY_SE_SPLIT			 0x2f //SPLIT [MOVE]
-#define KEY_SE_SNAP			 0x2e //SNAP [=]
-#define KEY_SE_RIPL_DEL		 0x2b //RIPL DEL
-
-#define KEY_SE_CAM1			 0x33 //CAM1
-#define KEY_SE_CAM2			 0x34 //CAM2
-#define KEY_SE_CAM3			 0x35 //CAM3
-#define KEY_SE_CAM4			 0x36 //CAM4
-#define KEY_SE_CAM5			 0x37 //CAM5
-#define KEY_SE_CAM6			 0x38 //CAM6
-#define KEY_SE_CAM7			 0x39 //CAM7
-#define KEY_SE_CAM8			 0x3a //CAM8
-#define KEY_SE_CAM9			 0x3b //CAM9
-#define KEY_SE_LIVE_OWR		 0x30 //LIVE O/WR [RND]
-#define KEY_SE_VIDEO_ONLY		 0x25 //VIDEO ONLY
-#define KEY_SE_AUDIO_ONLY		 0x26 //AUDIO ONLY
-#define KEY_SE_STOP_PLAY		 0x3c //STOP/PLAY
 
 
 typedef struct {
@@ -127,159 +78,7 @@ private:
 // Blackmagic Speed Editor Keyboard
 uint8_t const desc_hid_report[] =
 {
-0x06, 0x00, 0xFF,  // Usage Page (Vendor Defined 0xFF00)
-0x09, 0x00,        // Usage (0x00)
-0xA1, 0x01,        // Collection (Application)
-0x09, 0x01,        //   Usage (0x01)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x01,        //     Report ID (1)
-0x05, 0x06,        //     Usage Page (Generic Dev Ctrls)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x09, 0x2A,        //     Usage (0x2A)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x04,        //     Report Count (4)
-0xB1, 0x81,        //     Feature (Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0x09, 0x2D,        //     Usage (0x2D)
-0x09, 0x2E,        //     Usage (0x2E)
-0x09, 0x2F,        //     Usage (0x2F)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x03,        //     Report Count (3)
-0xB1, 0x81,        //     Feature (Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0xC0,              //   End Collection
-0x09, 0x08,        //   Usage (0x08)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x08,        //     Report ID (8)
-0x06, 0x07, 0xFF,  //     Usage Page (Vendor Defined 0xFF07)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x20,        //     Report Count (32)
-0xB1, 0x81,        //     Feature (Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0xC0,              //   End Collection
-0x09, 0x02,        //   Usage (0x02)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x03,        //     Report ID (3)
-0x06, 0x01, 0xFF,  //     Usage Page (Vendor Defined 0xFF01)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-0x09, 0x01,        //     Usage (0x01)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x04,        //     Report Count (4)
-0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-0x09, 0x02,        //     Usage (0x02)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0x91, 0x02,        //     Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0x09, 0x01,        //     Usage (0x01)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x04,        //     Report Count (4)
-0x91, 0x02,        //     Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0x09, 0x02,        //     Usage (0x02)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0x91, 0x02,        //     Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0xC0,              //   End Collection
-0x09, 0x03,        //   Usage (0x03)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x04,        //     Report ID (4)
-0x06, 0x02, 0xFF,  //     Usage Page (Vendor Defined 0xFF02)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x19, 0x00,        //     Usage Minimum (0x00)
-0x29, 0xFF,        //     Usage Maximum (0xFF)
-0x75, 0x10,        //     Report Size (16)
-0x95, 0x06,        //     Report Count (6)
-0x81, 0x00,        //     Input (Data,Array,Abs,No Wrap,Linear,Preferred State,No Null Position)
-0x15, 0x00,        //     Logical Minimum (0)
-0x25, 0x01,        //     Logical Maximum (1)
-0x19, 0x01,        //     Usage Minimum (0x01)
-0x29, 0x08,        //     Usage Maximum (0x08)
-0x75, 0x01,        //     Report Size (1)
-0x95, 0x08,        //     Report Count (8)
-0x91, 0x02,        //     Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0xC0,              //   End Collection
-0x09, 0x06,        //   Usage (0x06)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x02,        //     Report ID (2)
-0x06, 0x05, 0xFF,  //     Usage Page (Vendor Defined 0xFF05)
-0x15, 0x00,        //     Logical Minimum (0)
-0x25, 0x01,        //     Logical Maximum (1)
-0x19, 0x01,        //     Usage Minimum (0x01)
-0x29, 0x20,        //     Usage Maximum (0x20)
-0x75, 0x01,        //     Report Size (1)
-0x95, 0x20,        //     Report Count (32)
-0x91, 0x02,        //     Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0xC0,              //   End Collection
-0x09, 0x04,        //   Usage (0x04)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x05,        //     Report ID (5)
-0x06, 0x03, 0xFF,  //     Usage Page (Vendor Defined 0xFF03)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0xB1, 0x82,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0x09, 0x01,        //     Usage (0x01)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x04,        //     Report Count (4)
-0xB1, 0x82,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0x09, 0x02,        //     Usage (0x02)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x02,        //     Report Count (2)
-0xB1, 0x82,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0xC0,              //   End Collection
-0x09, 0x05,        //   Usage (0x05)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x06,        //     Report ID (6)
-0x06, 0x04, 0xFF,  //     Usage Page (Vendor Defined 0xFF04)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0xB1, 0x82,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0x09, 0x01,        //     Usage (0x01)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x08,        //     Report Count (8)
-0xB1, 0x82,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Volatile)
-0xC0,              //   End Collection
-0x09, 0x07,        //   Usage (0x07)
-0xA1, 0x01,        //   Collection (Application)
-0x85, 0x07,        //     Report ID (7)
-0x06, 0x06, 0xFF,  //     Usage Page (Vendor Defined 0xFF06)
-0x15, 0x00,        //     Logical Minimum (0)
-0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-0x09, 0x01,        //     Usage (0x01)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-0x09, 0x00,        //     Usage (0x00)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0xB1, 0x02,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0x09, 0x01,        //     Usage (0x01)
-0x75, 0x08,        //     Report Size (8)
-0x95, 0x01,        //     Report Count (1)
-0xB1, 0x02,        //     Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-0xC0,              //   End Collection
-0xC0,              // End Collection
-
-// 308 bytes
+  TUD_HID_REPORT_DESC_SPEED_EDITOR()
 };
 
 // USB HID object. For ESP32 these values cannot be changed after this declaration
