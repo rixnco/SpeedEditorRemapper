@@ -13,6 +13,29 @@
 #include "DavinciResolve_USBD_Vendor.h"
 #include "sed_auth.h"
 
+// #include "Shellminator.hpp"
+// #include "Shellminator-IO.hpp"
+
+#include "Cli.h"
+
+const char* logo =
+"/  ___|                   | |  ___|  | (_) |            \r\n"
+"\\ `--. _ __   ___  ___  __| | |__  __| |_| |_ ___  _ __ \r\n"
+" `--. \\ '_ \\ / _ \\/ _ \\/ _` |  __|/ _` | | __/ _ \\| '__|\r\n"
+"/\\__/ / |_) |  __/  __/ (_| | |__| (_| | | || (_) | |   \r\n"
+"\\____/| .__/ \\___|\\___|\\__,_\\____/\\__,_|_|\\__\\___/|_|   \r\n"
+"      | |                                               \r\n"
+"      |_|                                               \r\n"
+" _   _       _                _              _          \r\n"
+"| | | |     | |              | |            | |         \r\n"
+"| | | |_ __ | | ___  __ _ ___| |__   ___  __| |         \r\n"
+"| | | | '_ \\| |/ _ \\/ _` / __| '_ \\ / _ \\/ _` |         \r\n"
+"| |_| | | | | |  __/ (_| \\__ \\ | | |  __/ (_| |         \r\n"
+" \\___/|_| |_|_|\\___|\\__,_|___/_| |_|\\___|\\__,_|         \r\n"
+"                                                        \r\n"
+"                                                        ";
+
+
 #define DBG_PRINTF PRINTF 
 
 typedef struct {
@@ -65,7 +88,6 @@ uint8_t const desc_kbd_report[] =
 // desc report, desc len, protocol, interval, use out endpoint
 Adafruit_USBD_HID usb_kbd(desc_kbd_report, sizeof(desc_kbd_report), HID_ITF_PROTOCOL_KEYBOARD, 2, false);
 
-Adafruit_USBD_CDC usb_serial;
 
 
 
@@ -195,6 +217,11 @@ typedef enum {
 #endif
 
 
+// Create a Shellminator object, and initialize it to use Serial
+// Shellminator shell( &Serial );
+
+Cli cli;
+
 
 void task_running(void);
 
@@ -252,7 +279,24 @@ void setup() {
     yield();
   }
   digitalWrite(LED_BUILTIN, LED_STATE_ON);
-  printf("Yola\n");
+
+  cli.begin(&Serial);
+
+  // Clear the terminal
+  // shell.clear();
+
+  // Attach the logo.
+  // shell.attachLogo( logo );
+
+  // Print start message
+  Serial.println( "Program begin..." );
+  Serial.flush();
+
+  // initialize shell object.
+  // shell.begin( "$ " );
+
+
+  // printf("Yola\n");
 
 
 #if defined(CFG_DEBUG) && (CFG_LOGGER==1)
@@ -260,6 +304,9 @@ void setup() {
   Serial1.begin(115200);
 #endif
   DBG_PRINTF("\nSpeedEditorRemapper\n");
+
+
+
 
   // clear bonds if BUTTON A is pressed
   uint32_t time= millis();
@@ -340,7 +387,7 @@ void setup() {
   DBG_PRINTF("[BLE] Scanning...\n");
   // TinyUSBDevice.detach();
 
-  printf(">");
+  // printf(">");
 }
 
 void reset_mcu(uint32_t gpregret=0)
@@ -369,6 +416,8 @@ static bool led_state = LED_STATE_OFF;
 static uint32_t last_heartbeat_time=0;
 void loop()
 {
+
+  cli.update();
 
   uint32_t now= millis();
   if((state >= READY) && (now-last_heartbeat_time > 250))
