@@ -1,9 +1,7 @@
 
 #include "Cli.h"
+#include "debug.h"
 
-
-#define DBG_PRINTF(...) Serial1.printf(__VA_ARGS__)
-#define DBG_FLUSH()     Serial1.flush()
 
 Cli::Cli(uint8_t history_depth, uint16_t cmd_max_len, CliCmdHandler* handler, const char* prompt, const char* banner) :
   _io(nullptr),

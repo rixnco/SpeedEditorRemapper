@@ -11,6 +11,9 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
+
+#include "debug.h"
+
 #include "hid_key.h"
 #include "sed_key.h"
 #include "sed_hid_desc.h"
@@ -37,19 +40,34 @@ const char* banner =
 "\r\n";
 
 
-#define DBG_INIT()        Serial1.begin(115200)
-#define DBG_PRINT(...)    Serial1.print(__VA_ARGS__)
-#define DBG_PRINTLN(...)  Serial1.println(__VA_ARGS__)
-#define DBG_PRINTF(...)   Serial1.printf(__VA_ARGS__)
-#define DBG_FLUSH()       Serial1.flush()
+
+
+typedef struct {
+  uint32_t tap_hold_threshold_ms;
+} settings_t;
+
+
+typedef struct {
+  uint32_t input;
+  uint32_t output;
+  uint16_t layers;
+  uint16_t flags;
+} mapping_t;
+
+typedef struct {
+  uint32_t MAGIC;
+  uint16_t crc;
+  uint16_t version;
+  uint32_t len;
+} config_t;
+
 
 
 typedef struct {
   uint16_t se_key;
-  uint8_t kbd_mod;
-  uint8_t kbd_key;
+  uint8_t  kbd_mod;
+  uint8_t  kbd_key;
 } keymap_t;
-
 
 keymap_t keymap[] = {
   { .se_key=KEY_SE_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_1 },
@@ -236,6 +254,7 @@ MyCmdHandler cmd_handler;
 Cli cli(6,255,&cmd_handler, "$ ",banner);
 
 
+void reset_mcu(uint32_t gpregret=0);
 void task_running(void);
 
 
@@ -253,52 +272,71 @@ void setup() {
   digitalWrite(LED_BUILTIN, LED_STATE_ON);
   pinMode(PIN_BUTTON1, INPUT_PULLUP);
 
-  state = UNKNOWN;
-  authenticated= false;
-
   // Start Debug Serial Interface
   DBG_INIT();
   DBG_PRINT("\nSpeedEditor Unleashed\n");
 
+  // // Initialize Internal File System
+  // InternalFS.begin();
 
-  // Initialize Internal File System
-  InternalFS.begin();
-
-  settings.open(SETTINGS_FILE, FILE_O_READ);
-  // file existed
-  if ( settings )
-  {
-    DBG_PRINT(SETTINGS_FILE" file exists");
+  // settings.open(SETTINGS_FILE, FILE_O_READ);
+  // // file existed
+  // if ( settings )
+  // {
+  //   DBG_PRINTLN(SETTINGS_FILE" file exists");
     
-    uint32_t readlen;
-    char buffer[64] = { 0 };
-    readlen = settings.read(buffer, sizeof(buffer));
+  //   uint32_t readlen;
+  //   char buffer[64] = { 0 };
+  //   readlen = settings.read(buffer, sizeof(buffer));
 
-    buffer[readlen] = 0;
-    DBG_PRINTLN(buffer);
-    settings.close();
-  }else
+  //   buffer[readlen] = 0;
+  //   DBG_PRINTLN(buffer);
+  //   settings.close();
+  //   InternalFS.remove(SETTINGS_FILE);
+  // }else
+  // {
+  //   DBG_PRINT("Open " SETTINGS_FILE " file to write ... ");
+
+  //   if( settings.open(SETTINGS_FILE, FILE_O_WRITE) )
+  //   {
+  //     DBG_PRINTLN("OK");
+  //     settings.write(SETTINGS_FILE, strlen(SETTINGS_FILE));
+  //     settings.close();
+  //   }else
+  //   {
+  //     DBG_PRINTLN("Failed!");
+  //   }
+  // }
+
+  DBG_PRINT("[BLE] Checking bonds\r\n");
+  bond_init();
+
+  // clear bonds if BUTTON A is pressed
+  uint32_t time= millis();
+  while(millis()-time<2000)
   {
-    DBG_PRINT("Open " SETTINGS_FILE " file to write ... ");
-
-    if( settings.open(SETTINGS_FILE, FILE_O_WRITE) )
+    if (0 == digitalRead(PIN_BUTTON1))
     {
-      DBG_PRINTLN("OK");
-      settings.write(SETTINGS_FILE, strlen(CONTENTS));
-      settings.close();
-    }else
-    {
-      DBG_PRINTLN("Failed!");
+      DBG_PRINTF("[BLE] Clearing bonds\n");
+      Bluefruit.Central.clearBonds();
+      for(int t=0; t<4; ++t)
+      {
+        digitalWrite(LED_BUILTIN, LED_STATE_OFF);
+        delay(250);
+        digitalWrite(LED_BUILTIN, LED_STATE_ON);
+        delay(250);
+      }
+      break;
     }
   }
+  digitalWrite(LED_BUILTIN, LED_STATE_OFF);
 
-
+  DBG_PRINT("[SED] Initialization...\r\n");
+  state = UNKNOWN;
+  authenticated= false;
 
   //TODO Check creation...
   msg_queue= xQueueCreate(MAX_QUEUE_MESSAGE, sizeof(hid_report_t));
-  
-
-  bond_init();
 
   // TinyUSBDevice.setVersion(0x0102);  
   TinyUSBDevice.setDeviceVersion(0x0102);
@@ -321,46 +359,9 @@ void setup() {
   // Declare Serial (CDC)
   Serial.begin(115200);
 
-  // // Wait for USB enumeration.
-  // while(!Serial) {
-  //   digitalWrite(LED_BUILTIN, LED_STATE_ON);
-  //   delay(50);
-  //   digitalWrite(LED_BUILTIN, LED_STATE_OFF);
-  //   delay(200);
-  //   yield();
-  // }
-  // digitalWrite(LED_BUILTIN, LED_STATE_ON);
-
-  cli.begin(&Serial);
-
-
-
-
-
-
-  // clear bonds if BUTTON A is pressed
-  uint32_t time= millis();
-  while(millis()-time<2000)
-  {
-    if (0 == digitalRead(PIN_BUTTON1))
-    {
-      DBG_PRINTF("[BLE] Clearing bonds\n");
-      Bluefruit.Central.clearBonds();
-      for(int t=0; t<4; ++t)
-      {
-        digitalWrite(LED_BUILTIN, LED_STATE_OFF);
-        delay(250);
-        digitalWrite(LED_BUILTIN, LED_STATE_ON);
-        delay(250);
-      }
-      break;
-    }
-  }
-  digitalWrite(LED_BUILTIN, LED_STATE_OFF);
-
+  TinyUSBDevice.begin();
 
   Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
-
 
   Bluefruit.Security.setIOCaps(false,false,false);
   // // Bluefruit.Security.setMITM(true);
@@ -413,34 +414,15 @@ void setup() {
   
   state = SCANNING;
 
+  DBG_PRINT("[SED] Initialization...DONE\r\n");
+
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
-  DBG_PRINTF("[BLE] Scanning...\n");
-  // TinyUSBDevice.detach();
+  DBG_PRINTF("[BLE] Scanning...\r\n");
 
-  // printf(">");
+  // Begin console
+  cli.begin(&Serial);
+
 }
-
-void reset_mcu(uint32_t gpregret=0)
-{
-  // disable SD
-  sd_softdevice_disable();
-
-  // Disable all interrupts
-  NVIC->ICER[0]=0xFFFFFFFF;
-  NVIC->ICPR[0]=0xFFFFFFFF;
-#if defined(__NRF_NVIC_ISER_COUNT) && __NRF_NVIC_ISER_COUNT == 2
-  NVIC->ICER[1]=0xFFFFFFFF;
-  NVIC->ICPR[1]=0xFFFFFFFF;
-#endif
-
-  NRF_POWER->GPREGRET = gpregret;
-
-  NVIC_SystemReset();
-
-  // maybe yield ?
-  while(1) {}
-}
-
 
 static bool led_state = LED_STATE_OFF;
 static uint32_t last_heartbeat_time=0;
@@ -1052,6 +1034,27 @@ static bool sed_authentication(void)
   return true;
 }
 
+void reset_mcu(uint32_t gpregret)
+{
+  // disable SD
+  sd_softdevice_disable();
+
+  // Disable all interrupts
+  NVIC->ICER[0]=0xFFFFFFFF;
+  NVIC->ICPR[0]=0xFFFFFFFF;
+#if defined(__NRF_NVIC_ISER_COUNT) && __NRF_NVIC_ISER_COUNT == 2
+  NVIC->ICER[1]=0xFFFFFFFF;
+  NVIC->ICPR[1]=0xFFFFFFFF;
+#endif
+
+  NRF_POWER->GPREGRET = gpregret;
+
+  NVIC_SystemReset();
+
+  // maybe yield ?
+  while(1) {}
+}
+
 
 extern "C"
 {
@@ -1069,3 +1072,5 @@ int _write (int fd, const void *buf, size_t count)
 }
 
 }
+
+

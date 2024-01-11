@@ -1,0 +1,31 @@
+#ifndef __MAPPING_H__
+#define __MAPPING_H__
+
+
+
+#define MAPPING_FLAG_STICKY     (1<<0)
+#define MAPPING_FLAG_TAG        (1<<1)
+#define MAPPING_FLAG_HOLD       (1<<2)
+
+#define MAPPING_USAGE_NONE      (0x00000000)
+
+#define MAPPING_USAGE_KEYBOARD  (0x00070000)
+#define MAPPING_USAGE_MEDIA     (0x000C0000)
+
+#define MAPPING_USAGE_LAYER     (0xFFF10000)
+#define MAPPING_USAGE_MACRO     (0xFFF20000)
+#define MAPPING_USAGE_EXPR      (0xFFF30000)
+#define MAPPING_USAGE_GPIO      (0xFFF40000)
+#define MAPPING_USAGE_REGISTER  (0xFFF50000)
+
+
+#define MAPPING_USAGE_SED       (0xFFFA0000)
+
+
+
+
+
+
+
+
+#endif
