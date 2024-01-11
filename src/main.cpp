@@ -6,6 +6,11 @@
 #include "HardwareSerial.h"
 #include "BLEClientHIDReportCharacteristic.h"
 
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+
+using namespace Adafruit_LittleFS_Namespace;
+
 #include "hid_key.h"
 #include "sed_key.h"
 #include "sed_hid_desc.h"
@@ -13,12 +18,9 @@
 #include "DavinciResolve_USBD_Vendor.h"
 #include "sed_auth.h"
 
-// #include "Shellminator.hpp"
-// #include "Shellminator-IO.hpp"
-
 #include "Cli.h"
 
-const char* logo =
+const char* banner =
 "/  ___|                   | |  ___|  | (_) |            \r\n"
 "\\ `--. _ __   ___  ___  __| | |__  __| |_| |_ ___  _ __ \r\n"
 " `--. \\ '_ \\ / _ \\/ _ \\/ _` |  __|/ _` | | __/ _ \\| '__|\r\n"
@@ -32,11 +34,15 @@ const char* logo =
 "| | | | '_ \\| |/ _ \\/ _` / __| '_ \\ / _ \\/ _` |         \r\n"
 "| |_| | | | | |  __/ (_| \\__ \\ | | |  __/ (_| |         \r\n"
 " \\___/|_| |_|_|\\___|\\__,_|___/_| |_|\\___|\\__,_|         \r\n"
-"                                                        \r\n"
-"                                                        ";
+"\r\n";
 
 
-#define DBG_PRINTF PRINTF 
+#define DBG_INIT()        Serial1.begin(115200)
+#define DBG_PRINT(...)    Serial1.print(__VA_ARGS__)
+#define DBG_PRINTLN(...)  Serial1.println(__VA_ARGS__)
+#define DBG_PRINTF(...)   Serial1.printf(__VA_ARGS__)
+#define DBG_FLUSH()       Serial1.flush()
+
 
 typedef struct {
   uint16_t se_key;
@@ -60,8 +66,8 @@ keymap_t keymap[] = {
 
 #define KEYMAP_SIZE (sizeof(keymap)/sizeof(keymap_t))
 
-
-
+#define SETTINGS_FILE "/settings.cfg"
+File settings(InternalFS);
 
 
 // HID report descriptor using TinyUSB's template
@@ -217,10 +223,17 @@ typedef enum {
 #endif
 
 
-// Create a Shellminator object, and initialize it to use Serial
-// Shellminator shell( &Serial );
 
-Cli cli;
+class MyCmdHandler : public CliCmdHandler{
+public:
+  void process(const char* cmd, Print *output, Cli* cli) {
+    output->printf("Hello\n");
+  };
+};
+
+MyCmdHandler cmd_handler;
+
+Cli cli(6,255,&cmd_handler, "$ ",banner);
 
 
 void task_running(void);
@@ -242,6 +255,44 @@ void setup() {
 
   state = UNKNOWN;
   authenticated= false;
+
+  // Start Debug Serial Interface
+  DBG_INIT();
+  DBG_PRINT("\nSpeedEditor Unleashed\n");
+
+
+  // Initialize Internal File System
+  InternalFS.begin();
+
+  settings.open(SETTINGS_FILE, FILE_O_READ);
+  // file existed
+  if ( settings )
+  {
+    DBG_PRINT(SETTINGS_FILE" file exists");
+    
+    uint32_t readlen;
+    char buffer[64] = { 0 };
+    readlen = settings.read(buffer, sizeof(buffer));
+
+    buffer[readlen] = 0;
+    DBG_PRINTLN(buffer);
+    settings.close();
+  }else
+  {
+    DBG_PRINT("Open " SETTINGS_FILE " file to write ... ");
+
+    if( settings.open(SETTINGS_FILE, FILE_O_WRITE) )
+    {
+      DBG_PRINTLN("OK");
+      settings.write(SETTINGS_FILE, strlen(CONTENTS));
+      settings.close();
+    }else
+    {
+      DBG_PRINTLN("Failed!");
+    }
+  }
+
+
 
   //TODO Check creation...
   msg_queue= xQueueCreate(MAX_QUEUE_MESSAGE, sizeof(hid_report_t));
@@ -270,40 +321,19 @@ void setup() {
   // Declare Serial (CDC)
   Serial.begin(115200);
 
-  // Wait for USB enumeration.
-  while(!Serial) {
-    digitalWrite(LED_BUILTIN, LED_STATE_ON);
-    delay(50);
-    digitalWrite(LED_BUILTIN, LED_STATE_OFF);
-    delay(200);
-    yield();
-  }
-  digitalWrite(LED_BUILTIN, LED_STATE_ON);
+  // // Wait for USB enumeration.
+  // while(!Serial) {
+  //   digitalWrite(LED_BUILTIN, LED_STATE_ON);
+  //   delay(50);
+  //   digitalWrite(LED_BUILTIN, LED_STATE_OFF);
+  //   delay(200);
+  //   yield();
+  // }
+  // digitalWrite(LED_BUILTIN, LED_STATE_ON);
 
   cli.begin(&Serial);
 
-  // Clear the terminal
-  // shell.clear();
 
-  // Attach the logo.
-  // shell.attachLogo( logo );
-
-  // Print start message
-  Serial.println( "Program begin..." );
-  Serial.flush();
-
-  // initialize shell object.
-  // shell.begin( "$ " );
-
-
-  // printf("Yola\n");
-
-
-#if defined(CFG_DEBUG) && (CFG_LOGGER==1)
-  // Start Debug Serial Interface
-  Serial1.begin(115200);
-#endif
-  DBG_PRINTF("\nSpeedEditorRemapper\n");
 
 
 
@@ -417,7 +447,11 @@ static uint32_t last_heartbeat_time=0;
 void loop()
 {
 
-  cli.update();
+  if(Serial.dtr()) {
+    cli.update();
+  } else {
+    cli.reset();
+  }
 
   uint32_t now= millis();
   if((state >= READY) && (now-last_heartbeat_time > 250))

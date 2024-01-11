@@ -2,50 +2,57 @@
 #include "Cli.h"
 
 
-Cli::Cli() 
+#define DBG_PRINTF(...) Serial1.printf(__VA_ARGS__)
+#define DBG_FLUSH()     Serial1.flush()
+
+Cli::Cli(uint8_t history_depth, uint16_t cmd_max_len, CliCmdHandler* handler, const char* prompt, const char* banner) :
+  _io(nullptr),
+  _handler(handler),
+  _prompt(prompt),
+  _banner(banner),
+  _state(ERROR),
+  _HISTORY_DEPTH(history_depth+1),
+  _CMD_MAX_LEN(cmd_max_len)
 {
-  _io=nullptr;
-  _handler=nullptr;
-  _cur_x=_cur_y=0; 
-  _history=nullptr;
-  _history_head=_history_tail=_history_cnt=0;
-  _HISTORY_DEPTH=0;
 
-  _cmd_idx=0;
-  _cmd_len=0;
-  _CMD_MAX_LEN=0;
-}
+  // Allocate commands buffer
+  // We allocate memory to hold history_depth+2 commands
+  // _cmd[         0      * (_CMD_MAX_LEN+1)] =  command (edition)
+  // _cmd[         1      * (_CMD_MAX_LEN+1)] =  history command
+  // _cmd[        ...                       ] =  ...
+  // _cmd[         t                        ] =  ...                <- tail   : last history command
+  // _cmd[        ...                       ] =  ...
+  // _cmd[        ...                       ] =  ...
+  // _cmd[        h-1                       ] =  ...                <- head-1 : 1st history command
+  // _cmd[         h                        ] =  ...                <- head   : current prompt
+  // _cmd[        ...                       ] =  ...
+  // _cmd[(history_depth+2)*(_CMD_MAX_LEN+1)] =  history command
+  _cmd = (char*) malloc(((history_depth+2)*(cmd_max_len+1)) * sizeof(char) );
+  if(!_cmd) return;
 
-Cli::~Cli()
-{
-  end();
-}
+  // Allocate history circular buffer
+  _history = (char**) malloc(history_depth * sizeof(char*));
+  if(!_history) {
+    free(_cmd);
+    _cmd = nullptr;
+    return;
+  }
 
-void Cli::setCmdHandler(CliCmdHandler *callback)
-{
-  _handler = callback;
-}
+  // Clear whole commands buffer (history+current+cmd)
+  memclr(_cmd, (_HISTORY_DEPTH+1)*(_CMD_MAX_LEN+1));
 
-bool Cli::begin(Stream* io, uint8_t history_depth, uint16_t cmd_max_len)
-{
-  // Check if _history buffer is already allocated
-  if(_history!=nullptr || io==nullptr) return false;
-  
-  // Allocate _history buffer
-  _history = (char*) malloc((history_depth+1)*(cmd_max_len+1));
-  if(!_history) return false;
-
-  _HISTORY_DEPTH = history_depth;
-  _CMD_MAX_LEN = cmd_max_len;
-  memclr(_history, (_HISTORY_DEPTH+1)*(_CMD_MAX_LEN+1));
+  // Build history circular buffer
+  for(int t=0; t<_HISTORY_DEPTH; ++t) {
+    _history[t] = &_cmd[ (t+1) * (_CMD_MAX_LEN+1)];
+  }
 
   // _history[(_history_head)*(_cmd_max_len+1)] = first history entry
   // _history[(_history_tail)*(_cmd_max_len+1)] = last history entry
   // _cmd = _history[_history_depth*(_cmd_max_len+1)] = current cmd line entry
   _history_head=_history_tail=_history_cnt=0;
+  _history_idx = 0;
 
   // Current cmd line entry
-  _cmd= &_history[_HISTORY_DEPTH*(_CMD_MAX_LEN+1)];
   _cmd_idx=0;
   _cmd_len=0;
   
@@ -56,48 +63,85 @@ bool Cli::begin(Stream* io, uint8_t history_depth, uint16_t cmd_max_len)
   memclr(_esc_buffer, sizeof(_esc_buffer));
   _esc_idx = 0;
 
+  _state=RESET;
+}
+
+Cli::~Cli()
+{
+  _io=nullptr;
+  _handler=nullptr;
+  _prompt= nullptr;
+  _banner= nullptr;
+
+  _cur_x=_cur_y=0; 
+
+  if(_cmd) free(_cmd);
+  _cmd = nullptr;
+  _cmd_idx= _cmd_len=0;
+
+  if(_history) free(_history);
+  _history=nullptr;
+  _history_head=_history_tail=_history_cnt=0;
+  
+  _state=RESET;
+
+  _esc_idx = 0;
+
+}
+
+void Cli::setBanner(const char* banner)
+{
+  _banner = banner;
+}
+
+void Cli::setPrompt(const char* prompt)
+{
+  _prompt = prompt;
+}
+
+void Cli::setCmdHandler(CliCmdHandler *handler)
+{
+  _handler = handler;
+}
+
+
+bool Cli::begin(Stream* io)
+{
+  // Check if io is already defined
+  if(_io!=nullptr) return false;
+  
   // Set io stream
   _io = io;
 
-
-
-  clear();
-
-  // request cursor position
-  if(getCursor(_cur_x, _cur_y))
-  {
-  }
-  else
-  {
-  }
-
-  _state=INIT;
+  _state=RESET;
   return true;
 }
 
 void Cli::end()
 {
-  if(_history) free(_history);
-  _io=nullptr;
-  _handler=nullptr;
-  _cur_x=_cur_y=0; 
-  _history=nullptr;
-  _history_head=_history_tail=_history_cnt=0;
-
-  _cmd = nullptr;
-  _cmd_idx=0;
-  _cmd_len=0;
-  _state=INIT;
-
-  _esc_idx = 0;
+  _io = nullptr;
+  _state = RESET;
 }
 
+void Cli::reset()
+{
+  _state = RESET;
+}
 
 void Cli::update()
 {
-  
+  static bool _ignore_next_lf=false;
 
   if(_io==nullptr) return;
+
+  if(_state==RESET)
+  {
+    _clear();
+    if(_banner!=nullptr) {
+      _io->write(_banner, strlen(_banner));
+    }
+    _state = INIT;
+  }
 
   if(_state==INIT)
   {
@@ -108,8 +152,10 @@ void Cli::update()
     _screen_h= 0;
     _cur_x = 0;
     _cur_y = 0;
-    _io->printf("> "); _io->flush();
+    _io->printf("\033[G");        // Move cursor to left side.
+    if(_prompt) _io->printf(_prompt);
     _io->printf("\033[s");        // save current position;
+    _io->printf("\033[J");        // clear from cursor to end of screen
     _io->printf("\033[999;999H"); // move to 999,999
     _io->printf("\033[6n");       // request position (which will reflect screen size)
     _io->printf("\033[u");        // restore position
@@ -131,20 +177,68 @@ void Cli::update()
             _esc_buffer[_esc_idx++] = c;
             _state = ESC;
             break;
-          case '\r':
-            //_io->printf("%c", c); _io->flush();
+          case 0x7F:      // delete
+            _delete();
+            break;
+          case 0x08:     // backspace
+            _backspace();
             break;
           case '\n':
-            _io->printf("%c", c); _io->flush();
-            // PROCESS COMMAND
-            _state = INIT;
-            break;
-          default:
-            if(_cmd_idx>=_CMD_MAX_LEN) break;
-            if(_cmd_len==0) {
-              _cmd_x_start = _cmd_x = _cmd_x_end= _cur_x;
-              _cmd_y_start = _cmd_y = _cmd_y_end= _cur_y;
+            if(_ignore_next_lf)
+            {
+              _ignore_next_lf=false;
+              break;
             }
+          case '\r':
+          {
+            _ignore_next_lf= c=='\r';
+            _setCursor(_cmd_x_end, _cmd_y_end);
+            _io->printf("\r\n"); _io->flush();
+
+            _history_idx = 0;
+            _state = INIT;
+
+            DBG_PRINTF("Process cmd: _cmd_len=%d\n", _cmd_len);
+
+            // Terminate command.
+            _cmd[_cmd_len] = 0;
+            
+            if(_cmd_len==0) break;
+
+            // right trim spaces;
+            char* cmd = &_cmd[_cmd_len-1];
+            while(_cmd_len && isSpace(*cmd)) { *cmd= 0; --cmd; --_cmd_len; }
+            if(_cmd_len==0) break;
+
+            // left trim spaces;
+            cmd = _cmd;
+            while(_cmd_len && isSpace(*cmd)) { *cmd=0; ++cmd; --_cmd_len; }
+            if(_cmd_len==0) break;
+
+            DBG_PRINTF("\ncmd: '%s'\n", cmd);
+
+            // PROCESS COMMAND
+            if(_handler) _handler->process(cmd, _io, this);
+
+            // Update command history
+            memclr(_history[_history_head], (_CMD_MAX_LEN+1));
+            strncpy(_history[_history_head], cmd, _CMD_MAX_LEN);
+            
+            if(_history_cnt<_HISTORY_DEPTH-1) ++_history_cnt;
+            _history_head = (_history_head+1) % _HISTORY_DEPTH;
+            _history_tail = (_history_head-_history_cnt+_HISTORY_DEPTH) % _HISTORY_DEPTH;
+            
+            memclr(_history[_history_head], (_CMD_MAX_LEN+1));
+            memclr(_cmd, (_CMD_MAX_LEN+1));
+            break;
+          }
+          default:
+            DBG_PRINTF("%02X ", c);
+            if(_cmd_idx>=_CMD_MAX_LEN) break;
+            // if(_cmd_len==0) {
+            //   _cmd_x_start = _cmd_x = _cmd_x_end= _cur_x;
+            //   _cmd_y_start = _cmd_y = _cmd_y_end= _cur_y;
+            // }
             if( _cmd_idx<_cmd_len) {
               // We're inserting a character in the current command...
               // Shift the remaining chars before inserting.
@@ -153,15 +247,8 @@ void Cli::update()
             _cmd[_cmd_idx++]=c;
             _cmd_len++;
             _io->printf("%s", &_cmd[_cmd_idx-1]); _io->flush();
-            if( _cmd_idx<_cmd_len) {
-              _cmd_x= _cmd_x_start + (_cmd_idx % _screen_w);
-              _cmd_y= _cmd_y_start + (_cmd_idx / _screen_w);
-              // We have inserted a char.
-              // We need to rewrite the end of the command line
-              _io->printf("\033[s"); _io->flush(); // Save current cursor position
-              _io->printf("%s", &_cmd[_cmd_idx]); ; _io->flush();  // write the end of the command line.
-              _io->printf("\033[u"); _io->flush(); // Restore the cursor position
-            }
+
+            _updateCursor();
         }
         break;
       case ESC:
@@ -199,52 +286,133 @@ void Cli::update()
         // Proceed imediatly with FINAL parsing;
         _state= FINAL;
       case FINAL:
+        if(_esc_idx<ESCAPE_BUFFER_MAX_LEN )  _esc_buffer[_esc_idx++]= c;
+        _esc_buffer[_esc_idx]=0;
         switch(c) {
           case 'R': // Cursor position
           {
             uint16_t x=0;
             uint16_t y=0;
             if(_esc_param_len){
-              x= strtoul(_esc_param, &_esc_param, 10);
-              _esc_param++; // TODO CHECK that we have a ';'
               y= strtoul(_esc_param, &_esc_param, 10);
+              _esc_param++; // TODO CHECK that we have a ';'
+              x= strtoul(_esc_param, &_esc_param, 10);
             }
-            if(_screen_w==0 && _screen_h==0) { _screen_w=x; _screen_h=y; }
-            else { _cur_x=x; _cur_y=y; }
+            if(_screen_w==0 && _screen_h==0) { 
+              _screen_w=x; _screen_h=y; 
+            } else { 
+              _cmd_x_start = _cmd_x = _cmd_x_end= _cur_x = x;
+              _cmd_y_start = _cmd_y = _cmd_y_end= _cur_y = y;
+            }
 
-            Serial1.printf("pos: %hu,%hu\n", x,y);
+            DBG_PRINTF("pos: %hu,%hu\n", x,y);
             break;
           }
           case 'A': // Cursor UP
-            c= -1;
+          {
+            if(_history_idx==_history_cnt) break;
+
+            if(_history_idx==0)
+            {
+              // Store current cmd buffer to history_head
+              memclr(_history[_history_head], _CMD_MAX_LEN+1);
+              strncpy(_history[_history_head], _cmd, _CMD_MAX_LEN);
+            }
+            ++_history_idx;
+
+            // Copy history cmd to current cmd buffer
+            memclr(_cmd, _CMD_MAX_LEN+1);
+            uint16_t idx = (_history_head-_history_idx+_HISTORY_DEPTH) % _HISTORY_DEPTH;
+            strncpy(_cmd, _history[idx], _CMD_MAX_LEN);
+            
+            _cmd_len = strlen(_cmd);
+            _cmd_idx = _cmd_len;
+            _updateCursor();
+            _setCursor(_cmd_x_start, _cmd_y_start);
+            _io->printf(_cmd);
+            _io->printf("\033[J");
+            _cmd_idx = _cmd_len;
+            //_updateCursor();
             break;
+          }
           case 'B': // Cursor DOWN
-            c= -1;
+          {
+            if(_history_idx==0) break;
+
+            --_history_idx;
+
+            // Copy history cmd to current cmd buffer
+            memclr(_cmd, _CMD_MAX_LEN+1);
+            uint16_t idx = (_history_head-_history_idx+_HISTORY_DEPTH) % _HISTORY_DEPTH;
+            strncpy(_cmd, _history[idx], _CMD_MAX_LEN);
+            
+            _cmd_len = strlen(_cmd);
+            _cmd_idx = _cmd_len;
+            _updateCursor();
+            _setCursor(_cmd_x_start, _cmd_y_start);
+            _io->printf(_cmd);
+            _io->printf("\033[J");
+            _cmd_idx = _cmd_len;
+            //_updateCursor();
             break;
+          }
           case 'C': // Cursor RIGHT
             if(_cmd_idx<_cmd_len) {
               ++_cmd_idx;
-              break;
+              _updateCursor();
             } 
-            c= -1;
             break;
           case 'D': // Cursor LEFT
             if(_cmd_idx>0) {
               --_cmd_idx;
-              break;
+              _updateCursor();
             } 
-            c= -1;
             break;
+          case '~': // VT Sequence
+          {
+            //
+            uint16_t v=0; 
+            if(_esc_param_len){
+              v= strtoul(_esc_param, &_esc_param, 10);
+            }
+            switch(v) {
+              case 1: // Home
+              case 7: // Home
+                _cmd_idx = 0;
+                _updateCursor();
+                break;
+              case 3: // delete
+                _delete();
+                break;
+              case 4: // End
+              case 8: // End
+                _cmd_idx = _cmd_len;
+                _updateCursor();
+                break;
+              default:
+                DBG_PRINTF("\n<ESC>%s ", &_esc_buffer[1]);
+                DBG_FLUSH();
+                break;
+            }
+
+            break;
+          }
+          case 'H': // Home
+            _cmd_idx = 0;
+            _updateCursor();
+            break;
+          case 'F': // End
+            _cmd_idx = _cmd_len;
+            _updateCursor();
+            break;
+
           default:
-            Serial1.printf("ESC: %c\n", c);
             // Not implemented yet - or not supported
+            _io->printf(_esc_buffer); _io->flush();
+            DBG_PRINTF("\n<ESC>%s ", &_esc_buffer[1]);
+            DBG_FLUSH();
+            
             break;
-        }
-        if(c>=0)
-        {
-          if(_esc_idx<ESCAPE_BUFFER_MAX_LEN )  _esc_buffer[_esc_idx++]= c;
-          _esc_buffer[_esc_idx]=0;
-          _io->printf(_esc_buffer); _io->flush();
         }
         _state = IDLE;
         break;
@@ -254,94 +422,76 @@ void Cli::update()
   }
 }
 
+void Cli::_delete()
+{
+  if(_cmd_idx==_cmd_len) return;
+  memmove(&_cmd[_cmd_idx], &_cmd[_cmd_idx+1], _cmd_len-_cmd_idx);
+  --_cmd_len;
+  _updateCursor();
+  _io->printf("%s", &_cmd[_cmd_idx]); 
+  _io->printf("\033[J");
+  _io->flush();
+  _updateCursor();
+}
+
+void Cli::_backspace()
+{
+  if(_cmd_idx==0) return;
+  memmove(&_cmd[_cmd_idx-1], &_cmd[_cmd_idx], _cmd_len-_cmd_idx+1);
+  --_cmd_idx;
+  --_cmd_len;
+  _updateCursor();
+  _io->printf("%s", &_cmd[_cmd_idx]); 
+  _io->printf("\033[J");
+  _io->flush();
+  _updateCursor();
+}
+
+
+void Cli::_updateCursor()
+{
+  _updateCursor(_cmd_idx);
+}
+
+void Cli::_updateCursor(uint16_t idx)
+{
+  uint16_t len = _cmd_len;
+  if(idx>len) idx=len;
+  if(idx<len) --len;
+
+  _cmd_x_end = 1 + (((_cmd_x_start-1) + len) % _screen_w); 
+  _cmd_y_end = _cmd_y_start + (((_cmd_x_start-1) + len) / _screen_w); 
+
+  _cmd_x= 1 + (((_cmd_x_start-1) + idx) % _screen_w);
+  _cmd_y= _cmd_y_start + (((_cmd_x_start-1) + idx) / _screen_w); 
+
+  int32_t dy= _cmd_y_end - _screen_h ;
+
+  // DBG_PRINTF("x: % 2u, % 2u, % 2u\n", _cmd_x_start, _cmd_x, _cmd_x_end);
+  // DBG_PRINTF("y: % 2u, % 2u, % 2u\n", _cmd_y_start, _cmd_y, _cmd_y_end);
+
+  if(dy>0) {
+    _cmd_y_start  -= dy;
+    _cmd_y_end    -= dy;
+    _cmd_y        -= dy;
+    if(_cmd_idx==_cmd_len) _io->printf("\033[%huS", dy);
+  }
+  _io->printf("\033[%hu;%huH", _cmd_y, _cmd_x);
+}
+
 #define MAX_SEQUENCE_LEN  12
 
-void Cli::clear()
+void Cli::_clear()
 {
   // explanation can be found here: http://braun-home.net/michael/info/misc/VT100_commands.htm
   _io->printf("\033[H");  // VT100 Home command
   _io->printf("\033[J" );  // VT100 screen erase command
 }
 
-void Cli::setCursor(uint16_t x, uint16_t y)
+void Cli::_setCursor(uint16_t x, uint16_t y)
 {
   // explanation can be found here: http://braun-home.net/michael/info/misc/VT100_commands.htm
-  _io->printf("\033[%hu;%huH");  
+  _io->printf("\033[%hu;%huH",y,x);  
 }
 
 
-bool Cli::getCursor(uint16_t& x, uint16_t& y, uint32_t timeout)
-{
-  
-  uint32_t start;
-  uint16_t idx;
-  
-  char buffer[MAX_SEQUENCE_LEN+1];
-  enum { ERROR=-1, DONE, Y, X, CSI, ESC } state;
- 
-  _io->printf("\033[6n"); _io->flush();
-  idx = 0;
-  start = millis();
-  state = ESC;
-
-  while( state>DONE && (millis()-start< timeout))
-  {
-    if(_io->available()) {
-      int c= _io->read();
-      switch(state)
-      {
-        case ESC:                   // ESC
-          if(c=='\033') {
-            state = CSI;
-          } else {
-            state=ERROR;
-          }
-          break;
-        case CSI:                   // [
-          if(c=='[') {
-            state = X;
-            idx=0;
-          } else {
-            state=ERROR;
-          }
-          break;
-        case X:                   // <x>;
-          if(c==';') {
-            buffer[idx]=0;
-            if(sscanf(buffer, "%hu",&x)!=1) {
-              state=ERROR;
-            } else {
-              state=Y;
-              idx=0;
-            }
-          } else if( c>='0' && c<='9') {
-            buffer[idx++]= c;
-          } else {
-            state=ERROR;
-          }
-          break;
-        case Y:                   // <y>R
-          if(c=='R') {
-            buffer[idx]=0;
-            if(sscanf(buffer, "%hu",&y)!=1) {
-              state=ERROR;
-            } else {
-              state=DONE;    
-              idx=0;
-            }
-          } else if( c>='0' && c<='9') {
-            buffer[idx++]= c;
-          } else {
-            state=ERROR;
-          }
-          break;
-        default:
-          state = ERROR;
-      }
-      if(idx>=MAX_SEQUENCE_LEN) state = ERROR;
-    } else {
-      yield();
-    } 
-  }
-  return state == DONE;
-}
