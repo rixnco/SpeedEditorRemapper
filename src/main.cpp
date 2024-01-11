@@ -276,40 +276,49 @@ void setup() {
   DBG_INIT();
   DBG_PRINT("\nSpeedEditor Unleashed\n");
 
-  // // Initialize Internal File System
-  // InternalFS.begin();
+  // Initialize Internal File System
+  InternalFS.begin();
 
-  // settings.open(SETTINGS_FILE, FILE_O_READ);
-  // // file existed
-  // if ( settings )
-  // {
-  //   DBG_PRINTLN(SETTINGS_FILE" file exists");
+  settings.open(SETTINGS_FILE, FILE_O_READ);
+  // file existed
+  if ( settings )
+  {
+    DBG_PRINTLN("Settings found...");
     
-  //   uint32_t readlen;
-  //   char buffer[64] = { 0 };
-  //   readlen = settings.read(buffer, sizeof(buffer));
+    // uint32_t readlen;
+    // char buffer[64] = { 0 };
+    // readlen = settings.read(buffer, sizeof(buffer));
 
-  //   buffer[readlen] = 0;
-  //   DBG_PRINTLN(buffer);
-  //   settings.close();
-  //   InternalFS.remove(SETTINGS_FILE);
-  // }else
-  // {
-  //   DBG_PRINT("Open " SETTINGS_FILE " file to write ... ");
+    // buffer[readlen] = 0;
+    // DBG_PRINTLN(buffer);
 
-  //   if( settings.open(SETTINGS_FILE, FILE_O_WRITE) )
-  //   {
-  //     DBG_PRINTLN("OK");
-  //     settings.write(SETTINGS_FILE, strlen(SETTINGS_FILE));
-  //     settings.close();
-  //   }else
-  //   {
-  //     DBG_PRINTLN("Failed!");
-  //   }
-  // }
+    settings.close();
+  }else
+  {
+    DBG_PRINTLN("Settings not found...\r\n   Using defaults...");
+
+    if( settings.open(SETTINGS_FILE, FILE_O_WRITE) )
+    {
+      DBG_PRINTLN("OK");
+      // settings.write(SETTINGS_FILE, strlen(SETTINGS_FILE));
+      settings.close();
+    }else
+    {
+      DBG_PRINTLN("Failed!");
+    }
+  }
+
+
+  DBG_PRINT("[SED] Initialization...\r\n");
+  state = UNKNOWN;
+  authenticated= false;
+
+  //TODO Check creation...
+  msg_queue= xQueueCreate(MAX_QUEUE_MESSAGE, sizeof(hid_report_t));
 
   DBG_PRINT("[BLE] Checking bonds\r\n");
   bond_init();
+
 
   // clear bonds if BUTTON A is pressed
   uint32_t time= millis();
@@ -328,15 +337,16 @@ void setup() {
       }
       break;
     }
+    yield();
+    if (serialEvent && serialEventRun) serialEventRun();
   }
   digitalWrite(LED_BUILTIN, LED_STATE_OFF);
 
-  DBG_PRINT("[SED] Initialization...\r\n");
-  state = UNKNOWN;
-  authenticated= false;
-
-  //TODO Check creation...
-  msg_queue= xQueueCreate(MAX_QUEUE_MESSAGE, sizeof(hid_report_t));
+  //********************************
+  // Configure USB stuff
+  //********************************
+  
+  TinyUSBDevice.begin();
 
   // TinyUSBDevice.setVersion(0x0102);  
   TinyUSBDevice.setDeviceVersion(0x0102);
@@ -359,7 +369,10 @@ void setup() {
   // Declare Serial (CDC)
   Serial.begin(115200);
 
-  TinyUSBDevice.begin();
+
+  //********************************
+  // Configure BLE stuff
+  //********************************
 
   Bluefruit.configCentralBandwidth(BANDWIDTH_MAX);
 
@@ -414,14 +427,16 @@ void setup() {
   
   state = SCANNING;
 
-  DBG_PRINT("[SED] Initialization...DONE\r\n");
-
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
   DBG_PRINTF("[BLE] Scanning...\r\n");
 
-  // Begin console
+
+  //********************************
+  // Start cli
+  //********************************
   cli.begin(&Serial);
 
+  DBG_PRINT("[SED] Initialization...DONE\r\n");
 }
 
 static bool led_state = LED_STATE_OFF;
