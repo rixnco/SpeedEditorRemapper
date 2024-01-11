@@ -6,18 +6,42 @@
 #include "HardwareSerial.h"
 #include "BLEClientHIDReportCharacteristic.h"
 
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+
+using namespace Adafruit_LittleFS_Namespace;
+
 #include "hid_key.h"
 #include "sed_key.h"
 #include "sed_hid_desc.h"
+#include "config_hid_desc.h"
+#include "DavinciResolve_USBD_Vendor.h"
+#include "sed_auth.h"
 
-// #define PROPS_BCAST         (0b00000001)
-// #define PROPS_READ          (0b00000010)
-// #define PROPS_WRITE_NO_RSP  (0b00000100)
-// #define PROPS_WRITE         (0b00001000)
-// #define PROPS_NOTFY         (0b00010000)
-// #define PROPS_INDICATE      (0b00100000)
-// #define PROPS_AUTHS_WR      (0b01000000)
+#include "Cli.h"
 
+const char* banner =
+"/  ___|                   | |  ___|  | (_) |            \r\n"
+"\\ `--. _ __   ___  ___  __| | |__  __| |_| |_ ___  _ __ \r\n"
+" `--. \\ '_ \\ / _ \\/ _ \\/ _` |  __|/ _` | | __/ _ \\| '__|\r\n"
+"/\\__/ / |_) |  __/  __/ (_| | |__| (_| | | || (_) | |   \r\n"
+"\\____/| .__/ \\___|\\___|\\__,_\\____/\\__,_|_|\\__\\___/|_|   \r\n"
+"      | |                                               \r\n"
+"      |_|                                               \r\n"
+" _   _       _                _              _          \r\n"
+"| | | |     | |              | |            | |         \r\n"
+"| | | |_ __ | | ___  __ _ ___| |__   ___  __| |         \r\n"
+"| | | | '_ \\| |/ _ \\/ _` / __| '_ \\ / _ \\/ _` |         \r\n"
+"| |_| | | | | |  __/ (_| \\__ \\ | | |  __/ (_| |         \r\n"
+" \\___/|_| |_|_|\\___|\\__,_|___/_| |_|\\___|\\__,_|         \r\n"
+"\r\n";
+
+
+#define DBG_INIT()        Serial1.begin(115200)
+#define DBG_PRINT(...)    Serial1.print(__VA_ARGS__)
+#define DBG_PRINTLN(...)  Serial1.println(__VA_ARGS__)
+#define DBG_PRINTF(...)   Serial1.printf(__VA_ARGS__)
+#define DBG_FLUSH()       Serial1.flush()
 
 
 typedef struct {
@@ -27,17 +51,6 @@ typedef struct {
 } keymap_t;
 
 
-// keymap_t keymap[] = {
-//   { .se_key=KEY_SE_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP1 },
-//   { .se_key=KEY_SE_CAM2, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP2 },
-//   { .se_key=KEY_SE_CAM3, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP3 },
-//   { .se_key=KEY_SE_CAM4, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP4 },
-//   { .se_key=KEY_SE_CAM5, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP5 },
-//   { .se_key=KEY_SE_CAM6, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP6 },
-//   { .se_key=KEY_SE_CAM7, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP7 },
-//   { .se_key=KEY_SE_CAM8, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP8 },
-//   { .se_key=KEY_SE_CAM9, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_KP9 }
-// };
 keymap_t keymap[] = {
   { .se_key=KEY_SE_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_1 },
   { .se_key=KEY_SE_CAM2, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_2 },
@@ -53,25 +66,8 @@ keymap_t keymap[] = {
 
 #define KEYMAP_SIZE (sizeof(keymap)/sizeof(keymap_t))
 
-
-
-class DavinciResolve_USBD_Vendor : public Adafruit_USBD_Interface
-{
-public:
-  void begin();
-
-  DavinciResolve_USBD_Vendor(void) { _instance = INVALID_INSTANCE; }
-  // Get Interface Descriptor
-  // Fill the descriptor (if buf is not NULL) and return its length
-  virtual uint16_t getInterfaceDescriptor(uint8_t itfnum, uint8_t *buf, uint16_t bufsize);
-private:
-  enum { INVALID_INSTANCE = 0xffu };
-  static uint8_t _instance_count;
-
-  uint8_t _instance;
-
-  bool isValid(void) { return _instance != INVALID_INSTANCE; }
-};
+#define SETTINGS_FILE "/settings.cfg"
+File settings(InternalFS);
 
 
 // HID report descriptor using TinyUSB's template
@@ -88,7 +84,7 @@ DavinciResolve_USBD_Vendor usb_vendor;
 
 
 // HID report descriptor using TinyUSB's template
-// Single Report (no ID) descriptor
+// Keyboard Single Report (no ID) descriptor
 uint8_t const desc_kbd_report[] =
 {
   TUD_HID_REPORT_DESC_KEYBOARD()
@@ -97,6 +93,9 @@ uint8_t const desc_kbd_report[] =
 // USB HID object. For ESP32 these values cannot be changed after this declaration
 // desc report, desc len, protocol, interval, use out endpoint
 Adafruit_USBD_HID usb_kbd(desc_kbd_report, sizeof(desc_kbd_report), HID_ITF_PROTOCOL_KEYBOARD, 2, false);
+
+
+
 
 
 uint16_t usb_get_report_callback (uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen);
@@ -173,8 +172,6 @@ void ble_connect_callback(uint16_t conn_handle);
 void ble_pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status);
 void ble_connection_secured_callback(uint16_t conn_handle);
 void ble_disconnect_callback(uint16_t conn_handle, uint8_t reason);
-// bool pair_passkey_callback(uint16_t conn_hdl, uint8_t const passkey[6], bool match_request);
-// void pair_passkey_req_callback(uint16_t conn_hdl, uint8_t passkey[6]);
 void ble_discovery(uint16_t conn_handle);
 
 void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len);
@@ -227,13 +224,25 @@ typedef enum {
 
 
 
+class MyCmdHandler : public CliCmdHandler{
+public:
+  void process(const char* cmd, Print *output, Cli* cli) {
+    output->printf("Hello\n");
+  };
+};
+
+MyCmdHandler cmd_handler;
+
+Cli cli(6,255,&cmd_handler, "$ ",banner);
+
+
 void task_running(void);
 
 
 #define MAX_AUTHENTICATION_RETRY       (3u)
 #define AUTHENTICATION_RETRY_DELAY_MS  (5000u)
 
-static bool sed_authenticate(void);
+static bool sed_authentication(void);
 bool authenticated;
 
 state_t state;
@@ -246,6 +255,44 @@ void setup() {
 
   state = UNKNOWN;
   authenticated= false;
+
+  // Start Debug Serial Interface
+  DBG_INIT();
+  DBG_PRINT("\nSpeedEditor Unleashed\n");
+
+
+  // Initialize Internal File System
+  InternalFS.begin();
+
+  settings.open(SETTINGS_FILE, FILE_O_READ);
+  // file existed
+  if ( settings )
+  {
+    DBG_PRINT(SETTINGS_FILE" file exists");
+    
+    uint32_t readlen;
+    char buffer[64] = { 0 };
+    readlen = settings.read(buffer, sizeof(buffer));
+
+    buffer[readlen] = 0;
+    DBG_PRINTLN(buffer);
+    settings.close();
+  }else
+  {
+    DBG_PRINT("Open " SETTINGS_FILE " file to write ... ");
+
+    if( settings.open(SETTINGS_FILE, FILE_O_WRITE) )
+    {
+      DBG_PRINTLN("OK");
+      settings.write(SETTINGS_FILE, strlen(CONTENTS));
+      settings.close();
+    }else
+    {
+      DBG_PRINTLN("Failed!");
+    }
+  }
+
+
 
   //TODO Check creation...
   msg_queue= xQueueCreate(MAX_QUEUE_MESSAGE, sizeof(hid_report_t));
@@ -267,14 +314,28 @@ void setup() {
   usb_se.setReportCallback(usb_get_report_callback, usb_set_report_callback);
   usb_se.begin();
 
+  // Declare HID Keyboard
   usb_kbd.setStringDescriptor("Remapped Keyboard");
   usb_kbd.begin();
 
+  // Declare Serial (CDC)
+  Serial.begin(115200);
 
-  // Start Debug Serial Interface
-  Serial1.begin(115200);
+  // // Wait for USB enumeration.
+  // while(!Serial) {
+  //   digitalWrite(LED_BUILTIN, LED_STATE_ON);
+  //   delay(50);
+  //   digitalWrite(LED_BUILTIN, LED_STATE_OFF);
+  //   delay(200);
+  //   yield();
+  // }
+  // digitalWrite(LED_BUILTIN, LED_STATE_ON);
 
-  PRINTF("\nSpeedEditorRemapper\n");
+  cli.begin(&Serial);
+
+
+
+
 
 
   // clear bonds if BUTTON A is pressed
@@ -283,7 +344,7 @@ void setup() {
   {
     if (0 == digitalRead(PIN_BUTTON1))
     {
-      PRINTF("[BLE] Clearing bonds\n");
+      DBG_PRINTF("[BLE] Clearing bonds\n");
       Bluefruit.Central.clearBonds();
       for(int t=0; t<4; ++t)
       {
@@ -353,9 +414,10 @@ void setup() {
   state = SCANNING;
 
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
-  PRINTF("[BLE] Scanning...\n");
-  TinyUSBDevice.detach();
+  DBG_PRINTF("[BLE] Scanning...\n");
+  // TinyUSBDevice.detach();
 
+  // printf(">");
 }
 
 void reset_mcu(uint32_t gpregret=0)
@@ -385,6 +447,12 @@ static uint32_t last_heartbeat_time=0;
 void loop()
 {
 
+  if(Serial.dtr()) {
+    cli.update();
+  } else {
+    cli.reset();
+  }
+
   uint32_t now= millis();
   if((state >= READY) && (now-last_heartbeat_time > 250))
   {
@@ -398,15 +466,15 @@ void loop()
   case SCANNING:
     break;
   case DISCONNECTED:
-    PRINTF("[USB] Detaching...\n");
+    DBG_PRINTF("[USB] Detaching...\n");
     state = DETACHING;
     break;
   case DETACHING:
-    PRINTF("[USB] Detached...\n");
+    DBG_PRINTF("[USB] Detached...\n");
     state = DETACHED;
     break;
   case DETACHED:
-    PRINTF("[USB] Resetting MCU...\n");
+    DBG_PRINTF("[USB] Resetting MCU...\n");
     delay(500);
     reset_mcu();
     break;
@@ -418,39 +486,39 @@ void loop()
     xQueueReset(msg_queue);
 
     // Trying to authenticate SpeedEditor
-    PRINTF("[SED] SpeedEditor Authentication...\n");
+    DBG_PRINTF("[SED] SpeedEditor Authentication...\n");
 
     uint8_t retry=MAX_AUTHENTICATION_RETRY;
     do
     {
       if(retry<MAX_AUTHENTICATION_RETRY)
       {
-        PRINTF("[SED] Retrying...\n");
+        DBG_PRINTF("[SED] Retrying...\n");
         delay(AUTHENTICATION_RETRY_DELAY_MS);
       }
       --retry;
-      authenticated = sed_authenticate();
+      authenticated = sed_authentication();
       if(authenticated){
-        PRINTF("[SED] Authentication...OK\n");
+        DBG_PRINTF("[SED] Authentication...OK\n");
       } else {
-        PRINTF("[SED] Authentication...FAILED\n");
+        DBG_PRINTF("[SED] Authentication...FAILED\n");
       }
     } while(retry>0 && !authenticated);
         
     if(serial_feature_report->read(SERIAL_NUMBER, SERIAL_NUMBER_LEN)==SERIAL_NUMBER_LEN) {
-      PRINTF("[SED] SERIAL: %s\n\n", SERIAL_NUMBER);
+      DBG_PRINTF("[SED] SERIAL: %s\n\n", SERIAL_NUMBER);
       TinyUSBDevice.setSerialDescriptor((const char*)SERIAL_NUMBER);
     } else {
       TinyUSBDevice.setSerialDescriptor(nullptr);
     }
 
-    PRINTF("[USB] Attaching...");
+    DBG_PRINTF("[USB] Attaching...");
     if(TinyUSBDevice.attach()) {
-      PRINTF("OK\n");
+      DBG_PRINTF("OK\n");
     }
     else
     {
-      PRINTF("FAILED\n");
+      DBG_PRINTF("FAILED\n");
     }
     state = ATTACHING;
     break;
@@ -458,7 +526,7 @@ void loop()
   case ATTACHING:
   {
     if(TinyUSBDevice.mounted()) {
-      PRINTF("[USB] Enumerated...\n");
+      DBG_PRINTF("[USB] Enumerated...\n");
       state = ATTACHED;
     }
     break;
@@ -472,23 +540,23 @@ void loop()
   {
     if(key_input_report->canNotify()) {
       key_input_report->setNotifyCallback(ble_reportCallback, false);
-      PRINTF("[BLE] Enabling Key notifications (report %d-%d)\n", key_input_report->reportId(), key_input_report->reportType());
+      DBG_PRINTF("[BLE] Enabling Key notifications (report %d-%d)\n", key_input_report->reportId(), key_input_report->reportType());
       key_input_report->enableNotify();
       delay(30);
     }
     if(jog_input_report->canNotify()) {
       jog_input_report->setNotifyCallback(ble_reportCallback, false);
-      PRINTF("[BLE] Enabling Jog notifications (report %d-%d)\n", jog_input_report->reportId(), jog_input_report->reportType());
+      DBG_PRINTF("[BLE] Enabling Jog notifications (report %d-%d)\n", jog_input_report->reportId(), jog_input_report->reportType());
       jog_input_report->enableNotify();
       delay(30);
     }
     if(batt_input_report->canNotify()) {
       batt_input_report->setNotifyCallback(ble_reportCallback, false);
-      PRINTF("[BLE] Enabling Batt notifications (report %d-%d)\n", batt_input_report->reportId(), batt_input_report->reportType());
+      DBG_PRINTF("[BLE] Enabling Batt notifications (report %d-%d)\n", batt_input_report->reportId(), batt_input_report->reportType());
       batt_input_report->enableNotify();
       delay(30);
     }
-    PRINTF("\nAll set - ready to go !!\n");
+    DBG_PRINTF("\nAll set - ready to go !!\n");
     delay(100);
     state = RUNNING;
     break;
@@ -570,9 +638,9 @@ void task_running(void)
       digitalWrite(LED_BUILTIN, comm_led);
       last_heartbeat_time=millis()-50;
       usb_se.sendReport(report.id, pcur_key_se, 6*sizeof(uint16_t));
-      PRINTF("[USB] SED: ");
-      for(int t=0; t<6; ++t) PRINTF("%04X ",pcur_key_se[t]);
-      PRINTF("\n");
+      DBG_PRINTF("[USB] SED: ");
+      for(int t=0; t<6; ++t) DBG_PRINTF("%04X ",pcur_key_se[t]);
+      DBG_PRINTF("\n");
     }
     // Send kbd report
     if(usb_kbd.ready() && memcmp(pcur_key_kbd, pprv_key_kbd, 6*sizeof(keymap_t*))!=0)
@@ -590,9 +658,9 @@ void task_running(void)
         kbd_report.key[u++]= (*pkey_kbd)->kbd_key;
       }
       usb_kbd.sendReport(0, &kbd_report, sizeof(hid_kbd_report_t));
-      PRINTF("[USB] KBD: %02X - ",kbd_report.mod);
-      for(int t=0; t<6; ++t) PRINTF("0x%02X ",kbd_report.key[t]);
-      PRINTF("\n");
+      DBG_PRINTF("[USB] KBD: %02X - ",kbd_report.mod);
+      for(int t=0; t<6; ++t) DBG_PRINTF("0x%02X ",kbd_report.key[t]);
+      DBG_PRINTF("\n");
     }
     led_state = comm_led;
     return;
@@ -617,23 +685,23 @@ void task_running(void)
 
 void ble_discovery(uint16_t conn_handle)
 {
-  PRINTF("[BLE] Discovery...\n\n");
+  DBG_PRINTF("[BLE] Discovery...\n\n");
 
-  PRINTF("[BLE] Device Information Service...");
+  DBG_PRINTF("[BLE] Device Information Service...");
   if ( clientDis.discover(conn_handle) )
   {
-    PRINTF("FOUND\n");
+    DBG_PRINTF("FOUND\n");
     char buffer[64+1];
     
     memset(buffer, 0, sizeof(buffer));
     uint16_t count;
     if ( (count=clientDis.getChars(UUID16_CHR_PNP_ID, buffer, sizeof(buffer)))!=0 )
     {
-      PRINTF("[DIS] PNP_ID:\n");
-      PRINTF("[DIS]   src: %d\n",   *(uint8_t*)(&buffer[0]));
-      PRINTF("[DIS]   vid: %04X\n", *(uint16_t*)(&buffer[1]));
-      PRINTF("[DIS]   pid: %04X\n", *(uint16_t*)(&buffer[3]));
-      PRINTF("[DIS]   ver: %04X\n", *(uint16_t*)(&buffer[5]));
+      DBG_PRINTF("[DIS] PNP_ID:\n");
+      DBG_PRINTF("[DIS]   src: %d\n",   *(uint8_t*)(&buffer[0]));
+      DBG_PRINTF("[DIS]   vid: %04X\n", *(uint16_t*)(&buffer[1]));
+      DBG_PRINTF("[DIS]   pid: %04X\n", *(uint16_t*)(&buffer[3]));
+      DBG_PRINTF("[DIS]   ver: %04X\n", *(uint16_t*)(&buffer[5]));
       // TODO Check VID/PID
     }
 
@@ -641,38 +709,38 @@ void ble_discovery(uint16_t conn_handle)
     memset(buffer, 0, sizeof(buffer));
     if ( clientDis.getManufacturer(buffer, sizeof(buffer)) )
     {
-      PRINTF("[DIS] Manufacturer: %s\n", buffer);
+      DBG_PRINTF("[DIS] Manufacturer: %s\n", buffer);
     }
     // read and print out Model Number
     memset(buffer, 0, sizeof(buffer));
     if ( clientDis.getModel(buffer, sizeof(buffer)) )
     {
-      PRINTF("[DIS] Model: %s\n", buffer);
+      DBG_PRINTF("[DIS] Model: %s\n", buffer);
     }
   }else
   {
-    PRINTF("...NOT FOUND\n");
+    DBG_PRINTF("...NOT FOUND\n");
   }
-  PRINTF("\n");
+  DBG_PRINTF("\n");
 
-  PRINTF("[BLE] HID Service...");
+  DBG_PRINTF("[BLE] HID Service...");
   if ( clientHid.discover(conn_handle) )
   {
-    PRINTF("FOUND\n");
+    DBG_PRINTF("FOUND\n");
 
     uint16_t count;
 
     count = Bluefruit.Discovery.discoverCharacteristic(conn_handle, chrs, sizeof(chrs)/sizeof(chrs[0]));
-    PRINTF("[HID] Found %d characteristics\n", count);
-    PRINTF("[HID] -HIDInfo\n");
-    PRINTF("[HID] -HIDReportMap\n");
+    DBG_PRINTF("[HID] Found %d characteristics\n", count);
+    DBG_PRINTF("[HID] -HIDInfo\n");
+    DBG_PRINTF("[HID] -HIDReportMap\n");
     for(int t=0; t<11; ++t)
     {
       if(chrs[t]->discovered())
       {
         delay(10); // Needed to give some time to the stack to finilized its internal processing.
         BLEClientHIDReportCharacteristic* pchr= (BLEClientHIDReportCharacteristic*)chrs[t];
-        PRINTF("[HID] -HIDReport[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
+        DBG_PRINTF("[HID] -HIDReport[%d]: %d - %d\n", t, pchr->reportId(), pchr->reportType());
         if(pchr->reportId()==1 && pchr->reportType()==3) identity_feature_report= pchr;
         if(pchr->reportId()==2 && pchr->reportType()==2) leds_output_report= pchr;
         if(pchr->reportId()==3 && pchr->reportType()==1) jog_input_report= pchr;
@@ -689,39 +757,39 @@ void ble_discovery(uint16_t conn_handle)
     delay(10); // Needed to give some time to the stack to finilized its internal processing.
   }else
   {
-    PRINTF("FAILED\n");
+    DBG_PRINTF("FAILED\n");
   }
-  PRINTF("\n");
+  DBG_PRINTF("\n");
   
 
-  PRINTF("[BLE] Battery Service...");
+  DBG_PRINTF("[BLE] Battery Service...");
   if ( clientBas.discover(conn_handle) ) {
-    PRINTF("FOUND\n");
+    DBG_PRINTF("FOUND\n");
   } else {
-    PRINTF("NOT FOUND\n");
+    DBG_PRINTF("NOT FOUND\n");
   }
-  PRINTF("\n");
+  DBG_PRINTF("\n");
 
   delay(100);
   BLEConnection* conn = Bluefruit.Connection( conn_handle );
   uint16_t mtu = Bluefruit.getMaxMtu(BLE_GAP_ROLE_CENTRAL);
-  PRINTF("[BLE] Requesting MTU=%d  ...", mtu);
+  DBG_PRINTF("[BLE] Requesting MTU=%d  ...", mtu);
   if(!conn->requestMtuExchange(mtu)) {
-    PRINTF("FAILED\n");
+    DBG_PRINTF("FAILED\n");
   } else {
-    PRINTF("OK\n");
+    DBG_PRINTF("OK\n");
   }
   delay(100);
-  PRINTF("[BLE] Requesting Connection parameters update...");
+  DBG_PRINTF("[BLE] Requesting Connection parameters update...");
   if(!conn->requestConnectionParameter(6)) {
-    PRINTF("FAILED\n");
+    DBG_PRINTF("FAILED\n");
   } else {
-    PRINTF("OK\n");
+    DBG_PRINTF("OK\n");
   }
-  PRINTF("\n");
+  DBG_PRINTF("\n");
 
   state = READY;
-  PRINTF("[BLE] SpeedEditor Client configured...\n\n");
+  DBG_PRINTF("[BLE] SpeedEditor Client configured...\n\n");
 }
 
 
@@ -731,7 +799,11 @@ void ble_discovery(uint16_t conn_handle)
 uint16_t usb_get_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
 
-  if(state < READY) return 0;
+  DBG_PRINTF("[USB] getReport: %u - %u - %u \n", report_id, report_type, reqlen);
+  if(state < READY) {
+    DBG_PRINTF("[USB] getReport: %u - %u - %u - IGNORED\n", report_id, report_type, reqlen);
+    return 0;
+  }
 
   uint16_t len=0;
   for(int t=0; t<11; ++t)
@@ -743,12 +815,12 @@ uint16_t usb_get_report_callback(uint8_t report_id, hid_report_type_t report_typ
       break;
     }
   }
-  PRINTF("[USB] getReport: %d - %d: ", report_id, report_type, reqlen);
+  DBG_PRINTF("[USB] getReport: %d - %d: ", report_id, report_type);
   for(int t=0; t<len; ++t)
   {
-    PRINTF("%02X ", buffer[t]);
+    DBG_PRINTF("%02X ", buffer[t]);
   }
-  PRINTF("\n");
+  DBG_PRINTF("\n");
  
   if(state!=RUNNING && report_id==6 && report_type==3 && buffer[0]==0x04 && buffer[1]==0x58 && buffer[2]==0x02)
   {
@@ -762,7 +834,12 @@ uint16_t usb_get_report_callback(uint8_t report_id, hid_report_type_t report_typ
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
 void usb_set_report_callback(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
 {
-  if(state < READY) return;
+  
+  if(state < READY) 
+  {
+    DBG_PRINTF("[USB] setReport: %u - %u - %u - IGNORED\n", report_id, report_type, bufsize);
+    return;
+  }
 
   if(report_id==0 && report_type==0)
   {
@@ -781,11 +858,11 @@ void usb_set_report_callback(uint8_t report_id, hid_report_type_t report_type, u
     }
   }
 
-  PRINTF("[USB] setReport: %d - %d: ", report_id, report_type, bufsize);
+  DBG_PRINTF("[USB] setReport: %d - %d: ", report_id, report_type);
   for(int t=0; t<bufsize; ++t) {
-    PRINTF("%02X ", buffer[t]);
+    DBG_PRINTF("%02X ", buffer[t]);
   }
-  PRINTF("\n");
+  DBG_PRINTF("\n");
 }
 
 
@@ -809,16 +886,16 @@ void ble_connect_callback(uint16_t conn_handle)
 {
   BLEConnection* conn = Bluefruit.Connection(conn_handle);
 
-  PRINTF("[BLE] Connected\n");
+  DBG_PRINTF("[BLE] Connected\n");
 
   // HID device mostly require pairing/bonding
   if(!conn->bonded()) {
-    PRINTF("[BLE] Request pairing...\n");
+    DBG_PRINTF("[BLE] Request pairing...\n");
     conn->requestPairing();
   }
   else
   {
-    PRINTF("[BLE] Bonded...\n");
+    DBG_PRINTF("[BLE] Bonded...\n");
   }
 }
 
@@ -831,7 +908,7 @@ void ble_disconnect_callback(uint16_t conn_handle, uint8_t reason)
 {
   (void) conn_handle;
   (void) reason;
-  PRINTF("[BLE] Disconnected, reason = 0x%02X\n",reason);
+  DBG_PRINTF("[BLE] Disconnected, reason = 0x%02X\n",reason);
   state = DISCONNECTED;
 }
 
@@ -842,14 +919,14 @@ void ble_pairing_complete_callback(uint16_t conn_handle, uint8_t auth_status)
 
   if (auth_status != BLE_GAP_SEC_STATUS_SUCCESS)
   {
-    PRINTF("[BLE] Pairing...FAILED\n");
+    DBG_PRINTF("[BLE] Pairing...FAILED\n");
 
     // disconnect
     conn->disconnect();
     return;
   }
 
-  PRINTF("[BLE] Pairing...OK\n\n");
+  DBG_PRINTF("[BLE] Pairing...OK\n\n");
 
   ble_discovery(conn_handle);
 }
@@ -866,12 +943,12 @@ void ble_connection_secured_callback(uint16_t conn_handle)
     // This happens (central only) when we try to encrypt connection using stored bond keys
     // but peer reject it (probably it remove its stored key).
     // Therefore we will request an pairing again --> callback again when encrypted
-    PRINTF("[BLE] Not secured - request pairing");  
+    DBG_PRINTF("[BLE] Not secured - request pairing");  
     conn->requestPairing();
   }
   else
   {
-    PRINTF("[BLE] Secured...\n");
+    DBG_PRINTF("[BLE] Secured...\n");
     if(conn->bonded())
     {
 
@@ -882,12 +959,12 @@ void ble_connection_secured_callback(uint16_t conn_handle)
       uint8_t klen = key.own_enc.enc_info.ltk_len;
       uint8_t kauth= key.own_enc.enc_info.auth;
       uint8_t klesc= key.own_enc.enc_info.lesc;
-      PRINTF("[BLE] -LTK[%d:%d:%d]: 0x",klen,kauth,klesc);
+      DBG_PRINTF("[BLE] -LTK[%d:%d:%d]: 0x",klen,kauth,klesc);
       for(int t=klen-1; t>=0; --t)
       {
-        PRINTF("%02X",key.own_enc.enc_info.ltk[t]);
+        DBG_PRINTF("%02X",key.own_enc.enc_info.ltk[t]);
       }
-      PRINTF("\n\n");
+      DBG_PRINTF("\n\n");
 
 
       ble_discovery(conn_handle);
@@ -902,12 +979,12 @@ void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t le
   BLEClientHIDReportCharacteristic* report_chr= (BLEClientHIDReportCharacteristic*)chr;
   hid_report_t report;
   //TODO filter reports
-  PRINTF("[BLE] notif: %d - %d: ", report_chr->reportId(), report_chr->reportType());
-  for(int t=0; t<len; ++t) PRINTF("%02X ", data[t]);
-  PRINTF("\n");
+  DBG_PRINTF("[BLE] notif: %d - %d: ", report_chr->reportId(), report_chr->reportType());
+  for(int t=0; t<len; ++t) DBG_PRINTF("%02X ", data[t]);
+  DBG_PRINTF("\n");
 
   if(state!=RUNNING || len>=MAX_REPORT_PAYLOAD) {
-    PRINTF("[BLE] notif ignored\n");
+    DBG_PRINTF("[BLE] notif ignored\n");
     return;
   }
 
@@ -920,74 +997,9 @@ void ble_reportCallback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t le
 
 
 
-static const uint64_t	AUTH_EVEN_TBL[] = {
-		0x3ae1206f97c10bc8,
-		0x2a9ab32bebf244c6,
-		0x20a6f8b8df9adf0a,
-		0xaf80ece52cfc1719,
-		0xec2ee2f7414fd151,
-		0xb055adfd73344a15,
-		0xa63d2e3059001187,
-		0x751bf623f42e0dde
-};
-
-static const uint64_t AUTH_ODD_TBL[] = {
-		0x3e22b34f502e7fde,
-		0x24656b981875ab1c,
-		0xa17f3456df7bf8c3,
-		0x6df72e1941aef698,
-		0x72226f011e66ab94,
-		0x3831a3c606296b42,
-		0xfd7ff81881332c89,
-		0x61a3f6474ff236c6
-};
-
-static const uint64_t MASK = 0xa79a63f585d37bf0;
 
 
-static uint64_t rol8(uint64_t v)
-{
-	return ((v << 56) | (v >> 8)) & 0xffffffffffffffff;
-}
-
-static uint64_t rol8n(uint64_t v, uint16_t n)
-{
-	for(uint16_t i=0; i<n; ++i) v = rol8(v);
-	return v;
-}
-
-
-static uint64_t compute_auth(uint64_t challenge)
-{
-	uint16_t n = challenge & 7;
-	uint64_t v = rol8n(challenge, n);
-  uint64_t k;
-
-	if( (v & 1) == ((0x78 >> n) & 1) )
-  {
-		k = AUTH_EVEN_TBL[n];
-  }
-	else
-  {
-		v = v ^ rol8(v);
-		k = AUTH_ODD_TBL[n];
-  }
-	return v ^ (rol8(v) & MASK) ^ k;
-}
-
-
-typedef struct __attribute__((packed)) {
-  uint8_t  id;
-  union {
-    uint64_t value;
-    uint8_t  bytes[8];
-    uint16_t words[4];
-    uint32_t dwords[2];
-  };
-} challenge_t;
-
-
-static bool sed_authenticate(void)
+static bool sed_authentication(void)
 {
   challenge_t token;
   challenge_t challenge;
@@ -996,14 +1008,14 @@ static bool sed_authenticate(void)
   
   token.id=0;
   token.value=0;
-  PRINTF("[SED] Resetting Auth FSM   : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  DBG_PRINTF("[SED] Resetting Auth FSM   : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
   delay(40);
   auth_feature_report->write_resp(&token, sizeof(challenge_t));
 
   
   delay(40);
   auth_feature_report->read(&challenge, sizeof(challenge_t));
-  PRINTF("[SED] Reading kbd challenge: %02X - %08lX%08lX\n", challenge.id, challenge.dwords[1], challenge.dwords[0]);
+  DBG_PRINTF("[SED] Reading kbd challenge: %02X - %08lX%08lX\n", challenge.id, challenge.dwords[1], challenge.dwords[0]);
   if(challenge.id!=0)
   {
     return false;
@@ -1011,14 +1023,14 @@ static bool sed_authenticate(void)
 
   token.id= 1;
   token.value=0;
-  PRINTF("[SED] Sending our challenge: %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  DBG_PRINTF("[SED] Sending our challenge: %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
   delay(40);
   auth_feature_report->write_resp(&token, sizeof(challenge_t));
 
   
   delay(40);
   auth_feature_report->read(&token, sizeof(challenge_t));
-  PRINTF("[SED] Reading kbd response : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  DBG_PRINTF("[SED] Reading kbd response : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
   if(token.id!=2)
   {
     return false;
@@ -1026,13 +1038,13 @@ static bool sed_authenticate(void)
 
   challenge.id = 3;
   challenge.value = compute_auth(challenge.value);
-  PRINTF("[SED] Sending our response : %02X - %08lX%08lX\n", challenge.id, challenge.dwords[1], challenge.dwords[0]);
+  DBG_PRINTF("[SED] Sending our response : %02X - %08lX%08lX\n", challenge.id, challenge.dwords[1], challenge.dwords[0]);
   delay(40);
   auth_feature_report->write_resp(&challenge, sizeof(challenge_t));
 
   delay(40);
   auth_feature_report->read(&token, sizeof(challenge_t));
-  PRINTF("[SED] Reading Auth result  : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
+  DBG_PRINTF("[SED] Reading Auth result  : %02X - %08lX%08lX\n", token.id, token.dwords[1], token.dwords[0]);
   if(token.id!=4)
   {
     return false;
@@ -1041,42 +1053,19 @@ static bool sed_authenticate(void)
 }
 
 
-//-----------------------------------------------------------
-// DavinciResolve_USBD_Vendor class definition
-//-----------------------------------------------------------
+extern "C"
+{
 
-uint8_t DavinciResolve_USBD_Vendor::_instance_count = 0;
-
-// Starting endpoints; adjusted elsewhere as needed
-#define EPOUT 0x00
-#define EPIN 0x80
-
-
-void DavinciResolve_USBD_Vendor::begin() {
-  // already called begin()
-  if (isValid()) {
-    return;
+// nanolib printf() retarget
+int _write (int fd, const void *buf, size_t count)
+{
+  (void) fd;
+  size_t ret = 0;
+  if ( Serial )
+  {
+    ret = Serial.write((const uint8_t *) buf, count);
   }
-
-  // too many instances
-  if (!(_instance_count < 1)) {
-    return;
-  }
-
-  _instance = _instance_count++;
-  this->setStringDescriptor("Blackmagic DaVinci Resolve Speed Editor");
-  TinyUSBDevice.addInterface(*this);
+  return (int) ret;
 }
 
-uint16_t DavinciResolve_USBD_Vendor::getInterfaceDescriptor(uint8_t itfnum, uint8_t *buf, uint16_t bufsize)
-{
-  uint8_t desc[] = {TUD_VENDOR_DESCRIPTOR(itfnum, 0, EPOUT, EPIN, 1)};
-  uint16_t const len = sizeof(desc);
-
-  if (bufsize < len) {
-    return 0;
-  }
-
-  memcpy(buf, desc, len);
-  return len;
 }

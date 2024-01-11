@@ -1,25 +1,25 @@
-Input report   (1) : sent from the device
-Output report  (2) : sent to the device
-Feature report (3) :
-
-
-report ID 2: leds         (in / out)
-report ID 3: jog mode     (int / out)
-report ID 4: key          (in)
-report ID 4: jog leds     (out)
-report ID 7: battery
-
-
-ID 1 (FEATURE)      : 4+3
-ID 2 (OUTPUT)       : 4                 LEDS     (32* 1bits)
-ID 3 (INPUT/OUTPUT) : 1+4+1 / 1+4+1     JOG   /   JOG
-ID 4 (INPUT/OUTPUT) : 6*2   / 1         KEYS  /   JOG_LED
-ID 5 (FEATURE)      : 1 [+4] [+2]       ???
-ID 6 (FEATURE)      : 1+8               HANDSHAKE
-ID 7 (INPUT/FEATURE): 1+1               CHRG + BATT LEVEL
-ID 8 (FEATURE)      : 32                SERIAL NUMBER
-
-
+Input report   (1) : sent from the device  
+Output report  (2) : sent to the device  
+Feature report (3) :  
+  
+  
+report ID 2: leds         (in / out)  
+report ID 3: jog mode     (int / out)  
+report ID 4: key          (in)  
+report ID 4: jog leds     (out)  
+report ID 7: battery  
+  
+  
+ID 1 (FEATURE)      : 4+3  
+ID 2 (OUTPUT)       : 4                 LEDS     (32* 1bits)  
+ID 3 (INPUT/OUTPUT) : 1+4+1 / 1+4+1     JOG   /   JOG  
+ID 4 (INPUT/OUTPUT) : 6*2   / 1         KEYS  /   JOG_LED  
+ID 5 (FEATURE)      : 1 [+4] [+2]       ???  
+ID 6 (FEATURE)      : 1+8               HANDSHAKE  
+ID 7 (INPUT/FEATURE): 1+1               CHRG + BATT LEVEL  
+ID 8 (FEATURE)      : 32                SERIAL NUMBER  
+  
+  
 {
 06, 00, FF, 	// Usage Page (Vendor-Defined 1)  
 09, 00, 		// Usage (Undefined)  
