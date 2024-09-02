@@ -1,0 +1,56 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../../.platformio/packages/framework-arduinoadafruitnrf52"
+		}
+	],
+  "settings": {
+    "files.associations": {
+      "array": "cpp",
+      "*.tcc": "cpp",
+      "deque": "cpp",
+      "string": "cpp",
+      "unordered_map": "cpp",
+      "vector": "cpp",
+      "string_view": "cpp",
+      "memory": "cpp",
+      "list": "cpp",
+      "hid_device.h": "c",
+      "map": "cpp",
+      "algorithm": "cpp",
+      "initializer_list": "cpp",
+      "atomic": "cpp",
+      "cctype": "cpp",
+      "clocale": "cpp",
+      "cmath": "cpp",
+      "cstdarg": "cpp",
+      "cstddef": "cpp",
+      "cstdint": "cpp",
+      "cstdio": "cpp",
+      "cstdlib": "cpp",
+      "cwchar": "cpp",
+      "cwctype": "cpp",
+      "exception": "cpp",
+      "memory_resource": "cpp",
+      "optional": "cpp",
+      "system_error": "cpp",
+      "tuple": "cpp",
+      "type_traits": "cpp",
+      "utility": "cpp",
+      "fstream": "cpp",
+      "iosfwd": "cpp",
+      "istream": "cpp",
+      "limits": "cpp",
+      "new": "cpp",
+      "ostream": "cpp",
+      "sstream": "cpp",
+      "stdexcept": "cpp",
+      "streambuf": "cpp",
+      "cinttypes": "cpp",
+      "typeinfo": "cpp"
+    }
+  }
+}

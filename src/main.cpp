@@ -70,15 +70,15 @@ typedef struct {
 } keymap_t;
 
 keymap_t keymap[] = {
-  { .se_key=KEY_SE_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_1 },
-  { .se_key=KEY_SE_CAM2, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_2 },
-  { .se_key=KEY_SE_CAM3, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_3 },
-  { .se_key=KEY_SE_CAM4, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_4 },
-  { .se_key=KEY_SE_CAM5, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_5 },
-  { .se_key=KEY_SE_CAM6, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_6 },
-  { .se_key=KEY_SE_CAM7, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_7 },
-  { .se_key=KEY_SE_CAM8, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_8 },
-  { .se_key=KEY_SE_CAM9, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_9 }
+  { .se_key=KEY_SED_CAM1, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_1 },
+  { .se_key=KEY_SED_CAM2, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_2 },
+  { .se_key=KEY_SED_CAM3, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_3 },
+  { .se_key=KEY_SED_CAM4, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_4 },
+  { .se_key=KEY_SED_CAM5, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_5 },
+  { .se_key=KEY_SED_CAM6, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_6 },
+  { .se_key=KEY_SED_CAM7, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_7 },
+  { .se_key=KEY_SED_CAM8, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_8 },
+  { .se_key=KEY_SED_CAM9, .kbd_mod=KEY_MOD_LALT, .kbd_key=KEY_9 }
 };
 
 
@@ -1071,21 +1071,21 @@ void reset_mcu(uint32_t gpregret)
 }
 
 
-extern "C"
-{
+// extern "C"
+// {
 
-// nanolib printf() retarget
-int _write (int fd, const void *buf, size_t count)
-{
-  (void) fd;
-  size_t ret = 0;
-  if ( Serial )
-  {
-    ret = Serial.write((const uint8_t *) buf, count);
-  }
-  return (int) ret;
-}
+// // nanolib printf() retarget
+// int _write (int fd, const void *buf, size_t count)
+// {
+//   (void) fd;
+//   size_t ret = 0;
+//   if ( Serial )
+//   {
+//     ret = Serial.write((const uint8_t *) buf, count);
+//   }
+//   return (int) ret;
+// }
 
-}
+// }
 
 

@@ -3,16 +3,15 @@ Output report  (2) : sent to the device
 Feature report (3) :  
   
   
-report ID 2: leds         (in / out)  
-report ID 3: jog mode     (int / out)  
-report ID 4: key          (in)  
-report ID 4: jog leds     (out)  
+report ID 2: leds/leds        (in / out)  
+report ID 3: Jog/jog mode     (in / out)  
+report ID 4: key/jog leds     (in / out)  
 report ID 7: battery  
   
   
 ID 1 (FEATURE)      : 4+3  
 ID 2 (OUTPUT)       : 4                 LEDS     (32* 1bits)  
-ID 3 (INPUT/OUTPUT) : 1+4+1 / 1+4+1     JOG   /   JOG  
+ID 3 (INPUT/OUTPUT) : 1+4+1 / 1+4+1     JOG   /   JOG_MODE  
 ID 4 (INPUT/OUTPUT) : 6*2   / 1         KEYS  /   JOG_LED  
 ID 5 (FEATURE)      : 1 [+4] [+2]       ???  
 ID 6 (FEATURE)      : 1+8               HANDSHAKE  
